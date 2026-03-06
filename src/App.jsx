@@ -261,13 +261,13 @@ export default function App(){
   };
   if(ses===undefined)return <div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",color:T.gr,fontSize:18,fontWeight:900}}>🌍 VierAfrik…</div>;
   if(!ses)return <AuthPage onLogin={u=>setSes(u)}/>;
-  return <App ses={ses} logout={logout} updSes={updSes}/>;
+ return <Dashboard ses={ses} logout={logout} updSes={updSes}/>;
 }
 
 // ════════════════════════════════
 //  APP PRINCIPALE
 // ════════════════════════════════
-function App({ses,logout,updSes}){
+function Dashboard({ses,logout,updSes}) {
   const uid=ses.id;
   const plan=PLANS[ses.plan||"free"];
   const accent=ses.accent||T.gr;
