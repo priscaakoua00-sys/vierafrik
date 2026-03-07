@@ -312,7 +312,7 @@ export default function App(){
 // ════════════════════════════════
 //  APP PRINCIPALE
 // ════════════════════════════════
-function App({ses,logout,updSes}){
+
   const uid=ses.id;
   const plan=PLANS[ses.plan||"free"];
   const accent=ses.accent||T.gr;
