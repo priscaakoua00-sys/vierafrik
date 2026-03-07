@@ -219,7 +219,7 @@ function AuthPage({onLogin}){
     setE(err);return Object.keys(err).length===0;
   };
   const go=()=>{
-    if(!ok())return;setL(true);
+   setL(true);
     setTimeout(()=>{
       if(tab==="reset"){setD(true);setL(false);return;}
       const users=db.g("users")||{};
