@@ -296,7 +296,7 @@ function AuthPage({onLogin}){
 //  ROOT EXPORT
 // ════════════════════════════════
 export default function App(){
-  const [ses,setSes]=useState(undefined);
+  const [ses,setSes]=useState(null);
   useEffect(()=>{setSes(db.g("session")||null);},[]);
   const logout=()=>{db.s("session",null);setSes(null);};
   const updSes=upd=>{
