@@ -306,9 +306,7 @@ export default function App(){
   };
   if(ses===undefined)return <div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",color:T.gr,fontSize:18,fontWeight:900}}>🌍 VierAfrik…</div>;
   if(!ses)return <AuthPage onLogin={u=>setSes(u)}/>;
-  return <App ses={ses} logout={logout} updSes={updSes}/>;
-}
-
+ return <MainApp ses={ses} logout={logout} updSes={updSes}/>;
 // ════════════════════════════════
 //  APP PRINCIPALE
 // ════════════════════════════════
