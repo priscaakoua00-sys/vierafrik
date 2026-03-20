@@ -1,0 +1,40 @@
+{
+  "id": "vierafrik-app",
+  "name": "VierAfrik — Gestion Business Africain",
+  "short_name": "VierAfrik",
+  "description": "Application de gestion pour entrepreneurs africains. Factures, clients, Mobile Money, Coach IA.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#010306",
+  "theme_color": "#010306",
+  "orientation": "portrait-primary",
+  "lang": "fr",
+  "scope": "/",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nouvelle vente",
+      "short_name": "Vente",
+      "url": "/?action=vente"
+    },
+    {
+      "name": "Nouvelle facture",
+      "short_name": "Facture",
+      "url": "/?action=facture"
+    }
+  ]
+}
