@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Theme & App -->
+    <meta name="theme-color" content="#010306" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="apple-mobile-web-app-title" content="VierAfrik" />
+
+    <!-- SEO -->
+    <title>VierAfrik — Gestion Business Africain</title>
+    <meta name="description" content="Application de gestion pour entrepreneurs africains. Factures PDF, clients, Mobile Money, Coach IA." />
+    <meta name="keywords" content="gestion business afrique, facturation, mobile money, entrepreneur africain" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="VierAfrik — Gestion Business Africain" />
+    <meta property="og:description" content="Gérez votre business africain avec factures PDF, Mobile Money, Coach IA." />
+    <meta property="og:url" content="https://vierafrik.com" />
+    <meta property="og:type" content="website" />
+
+    <!-- Apple Touch Icons -->
+    <link rel="apple-touch-icon" sizes="192x192" href="/icon-192x192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/icon-512x512.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon-96x96.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icon-72x72.png" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+
+    <!-- Service Worker Registration -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('SW registered'))
+            .catch(err => console.log('SW error:', err));
+        });
+      }
+    </script>
+  </body>
+</html>
