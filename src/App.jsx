@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 // ══════════════════════════════════════════════════════
 // App v34 — Freemium découverte (base v31 intacte) :
@@ -298,7 +299,9 @@ const getSupa = async () => {
   // Recrée le client si la clé a changé (après test panel diagnostic)
   const currentKey = getSupaKey();
   if(_supa && _supa._supaKey === currentKey) return _supa;
-  const {createClient} = await import('https://esm.sh/@supabase/supabase-js@2');
+  // FIX — avant : chargement en direct depuis https://esm.sh/@supabase/supabase-js@2
+  // à chaque visite (version non verrouillée, point de panne unique externe).
+  // Maintenant : dépendance npm normale, figée dans le build, aucun appel réseau externe.
   const client = createClient(SUPA_URL, currentKey, {auth:{persistSession:true,storageKey:"vierafrik_auth"}});
   client._supaKey = currentKey;
   _supa = client;
@@ -1004,7 +1007,7 @@ const getPublicSupa = async () => {
   const key = _getPublicSupaKey();
   // Recrée le client si la clé a changé (cohérent avec getSupa)
   if (_publicSupa && _publicSupaKey === key) return _publicSupa;
-  const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
+  // FIX — même correctif que getSupa() : plus de chargement CDN externe non verrouillé.
   _publicSupa = createClient(_PUBLIC_SUPA_URL, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { apikey: key, Authorization: `Bearer ${key}` } },
