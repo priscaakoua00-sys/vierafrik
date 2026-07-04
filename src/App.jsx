@@ -3459,7 +3459,7 @@ function Dashboard({ses,logout,updSes}){
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
     const paySuccess=params.get("pay_success");
-    const trxRef=params.get("trxref")||params.get("reference")||params.get("ref")||params.get("transaction_id");
+    const trxRef=params.get("trxref")||params.get("reference")||params.get("ref")||params.get("transaction_id")||params.get("id");
     const plan=params.get("plan");
     const uidFromUrl=params.get("uid");
     // Vérifier que c'est un vrai retour FedaPay avec référence transaction
