@@ -7831,7 +7831,15 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
     const [loadingP, setLoadingP]   = useState(false);
     const [published, setPublished] = useState(false);
     const [propForm, setPropForm]   = useState({city:"",phone:"",desc:"",imageUrl:"",imageFile:null});
-    const [propPreview, setPropPreview] = useState(null);
+    // v35 — Plusieurs photos au lieu d'une seule (max 5) pour inspirer confiance
+    const MAX_PROP_IMAGES = 5;
+    const [propImages, setPropImages] = useState([]); // tableau de data-URLs compressées
+    const propPreview = propImages[0] || null; // rétro-compatibilité (ImportAnnonce, validations)
+    const addPropImage = (img) => {
+      if(!img) return;
+      setPropImages(list => list.includes(img) ? list : (list.length>=MAX_PROP_IMAGES ? list : [...list, img]));
+    };
+    const removePropImage = (idx) => setPropImages(list => list.filter((_,i)=>i!==idx));
     const [filterCity, setFilterCity]   = useState("");
     const [filterCat,  setFilterCat]    = useState("");
     const [recording, setRecording]     = useState(false);
@@ -7882,6 +7890,7 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
     };
     const handleImage=(e)=>{
       const f=e.target.files[0];if(!f)return;
+      if(propImages.length>=MAX_PROP_IMAGES){toast(`📷 Maximum ${MAX_PROP_IMAGES} photos`,"warn");e.target.value="";return;}
       // Compression canvas — max 800px, qualité 0.72 → ~50-100KB au lieu de 1-5MB
       const img=new Image();
       const url=URL.createObjectURL(f);
@@ -7894,22 +7903,33 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
         canvas.getContext("2d").drawImage(img,0,0,w,h);
         const compressed=canvas.toDataURL("image/jpeg",0.72);
         URL.revokeObjectURL(url);
-        setPropPreview(compressed);
+        addPropImage(compressed);
         setPropForm(p=>({...p,imageUrl:compressed,imageFile:f}));
+        e.target.value=""; // permet de re-sélectionner le même fichier / en ajouter un autre juste après
       };
       img.src=url;
     };
     const handlePublish=async()=>{
       if(!propForm.phone){toast("📞 Numéro obligatoire","err");return;}
-      if(!propPreview){toast("📷 Photo obligatoire","err");return;}
+      if(propImages.length===0){toast("📷 Au moins une photo obligatoire","err");return;}
       if(!propForm.city){toast("📍 Ville obligatoire","err");return;}
       setLoadingP(true);
       try{
         const s=await getSupa();
-        await s.from("quick_posts").insert({id:xid(),user_id:ses?.id||"",category:selCat,city:propForm.city,phone:propForm.phone,description:propForm.desc||"",image_url:propPreview,created_at:new Date().toISOString()});
+        await s.from("quick_posts").insert({id:xid(),user_id:ses?.id||"",category:selCat,city:propForm.city,phone:propForm.phone,description:propForm.desc||"",image_url:propImages[0],image_urls:propImages,created_at:new Date().toISOString()});
         await trackAR("propose","publish");
         setPublished(true);
-      }catch(e){toast("Erreur — réessayez","err");}
+      }catch(e){
+        // Fallback si la colonne image_urls n'existe pas encore côté Supabase
+        if(String(e?.message||"").includes("image_urls")){
+          try{
+            const s=await getSupa();
+            await s.from("quick_posts").insert({id:xid(),user_id:ses?.id||"",category:selCat,city:propForm.city,phone:propForm.phone,description:propForm.desc||"",image_url:propImages[0],created_at:new Date().toISOString()});
+            await trackAR("propose","publish");
+            setPublished(true);
+          }catch(e2){toast("Erreur — réessayez","err");}
+        } else toast("Erreur — réessayez","err");
+      }
       finally{setLoadingP(false);}
     };
     const stopRec=useCallback(()=>{
@@ -7931,7 +7951,7 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
     const doWAAR=(phone)=>{trackAR("search","whatsapp");window.open(`https://wa.me/${cleanP(phone)}`,"_blank");};
     const doVideoAR=(phone)=>{trackAR("search","video");window.open(`https://wa.me/${cleanP(phone)}?text=Je%20voudrais%20faire%20un%20appel%20vid%C3%A9o`,"_blank");};
     const doVocalAR=()=>{trackAR("search","vocal");recording?stopRec():startRecording();};
-    const resetAR=()=>{setScreen(1);setSelCat(null);setMode(null);setPropForm({city:"",phone:"",desc:"",imageUrl:"",imageFile:null});setPropPreview(null);setPublished(false);setAudioBlob(null);};
+    const resetAR=()=>{setScreen(1);setSelCat(null);setMode(null);setPropForm({city:"",phone:"",desc:"",imageUrl:"",imageFile:null});setPropImages([]);setPublished(false);setAudioBlob(null);};
 
     const IFS={width:"100%",padding:"11px 14px",background:T.c3,border:`1px solid ${T.border}`,borderRadius:11,color:T.text,fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",fontSize:13,outline:"none",marginTop:4,transition:"all .2s"};
     const ActionBtn=({label,ic,col,fn})=>(
@@ -7976,7 +7996,7 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
         {/* Import annonce */}
         <ImportAnnonce accent={accent} toast={toast} onImported={(data)=>{
           setPropForm(p=>({...p, desc:data.description||"", imageUrl:data.image||""}));
-          setPropPreview(data.image||null);
+          if(data.image) addPropImage(data.image);
           toast("✅ Annonce importée ! Choisissez une catégorie pour publier.");
         }}/>
       </div>
@@ -8042,29 +8062,37 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
             <div style={{fontWeight:900,fontSize:22,letterSpacing:"-.04em",marginBottom:4}}>📢 Mon <span style={{color:accent}}>service</span></div>
             <div style={{fontSize:12,color:T.sub2}}>Remplis en 30 secondes — tes clients te trouvent</div>
           </div>
-          {/* Photo */}
+          {/* Photo(s) */}
           <div style={{marginBottom:13}}>
-            <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:T.sub,marginBottom:5}}>📷 Photo <span style={{color:T.red}}>*</span></div>
+            <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:T.sub,marginBottom:5}}>
+              📷 Photos <span style={{color:T.red}}>*</span> <span style={{color:T.sub2,textTransform:"none",fontWeight:500}}>({propImages.length}/{MAX_PROP_IMAGES} · plus il y en a, plus ça inspire confiance)</span>
+            </div>
             {/* Input file caché — déclenché SEULEMENT par le bouton */}
             <input id="photo-upload" type="file" accept="image/*" onChange={handleImage} style={{display:"none"}}/>
-            {propPreview ? (
-              <div style={{position:"relative"}}>
-                <img src={propPreview} alt="preview" style={{width:"100%",height:180,objectFit:"cover",borderRadius:14,border:`2px solid ${accent}55`,display:"block"}}/>
-                <button type="button" onClick={(e)=>{e.stopPropagation();e.preventDefault();setPropPreview(null);setPropForm(p=>({...p,imageUrl:"",imageFile:null}));}}
-                  style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:"50%",width:28,height:28,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+            {propImages.length>0 && (
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:propImages.length<MAX_PROP_IMAGES?8:0}}>
+                {propImages.map((img,idx)=>(
+                  <div key={idx} style={{position:"relative"}}>
+                    <img src={img} alt={`photo ${idx+1}`} style={{width:"100%",height:88,objectFit:"cover",borderRadius:12,border:`2px solid ${idx===0?accent+"88":T.border}`,display:"block"}}/>
+                    {idx===0&&<span style={{position:"absolute",bottom:4,left:4,background:"rgba(0,0,0,.7)",color:"#fff",fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:6}}>Principale</span>}
+                    <button type="button" onClick={(e)=>{e.stopPropagation();e.preventDefault();removePropImage(idx);}}
+                      style={{position:"absolute",top:5,right:5,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                  </div>
+                ))}
               </div>
-            ) : (
+            )}
+            {propImages.length<MAX_PROP_IMAGES && (
               <button type="button" onClick={(e)=>{e.stopPropagation();e.preventDefault();document.getElementById("photo-upload").click();}}
-                style={{width:"100%",height:120,borderRadius:14,border:`2px dashed ${T.border}`,background:T.c2,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,color:T.sub,cursor:"pointer",fontFamily:"inherit"}}>
-                <span style={{fontSize:36}}>📷</span>
-                <span style={{fontSize:12,fontWeight:600}}>Appuyer pour photographier</span>
+                style={{width:"100%",height:propImages.length>0?64:120,borderRadius:14,border:`2px dashed ${T.border}`,background:T.c2,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:propImages.length>0?2:8,color:T.sub,cursor:"pointer",fontFamily:"inherit"}}>
+                <span style={{fontSize:propImages.length>0?20:36}}>📷</span>
+                <span style={{fontSize:12,fontWeight:600}}>{propImages.length>0?"Ajouter une autre photo":"Appuyer pour photographier"}</span>
               </button>
             )}
           </div>
           {/* Images professionnelles — COMPLÈTEMENT séparées de l'input file */}
-          {!propPreview && catObj && (
+          {propImages.length<MAX_PROP_IMAGES && catObj && (
             <div style={{marginBottom:13}}>
-              <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:T.sub,marginBottom:6}}>🖼️ Ou choisir une image professionnelle</div>
+              <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:T.sub,marginBottom:6}}>🖼️ Ou ajouter une image professionnelle</div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
                 {[
                   {id:"beaute",    imgs:["https://images.unsplash.com/photo-1560066984-138dadb4c035?w=300&q=70","https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=300&q=70","https://images.unsplash.com/photo-1487412947147-5cebf100ffc2?w=300&q=70"]},
@@ -8076,23 +8104,28 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
                   {id:"reparation",imgs:["https://images.unsplash.com/photo-1621905251189-08b45d6a269e?w=300&q=70","https://images.unsplash.com/photo-1572981779307-38b8cabb2407?w=300&q=70","https://images.unsplash.com/photo-1581092160562-40aa08e78837?w=300&q=70"]},
                   {id:"hotel",     imgs:["https://images.unsplash.com/photo-1566073771259-6a8506099945?w=300&q=70","https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=300&q=70","https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=300&q=70"]},
                   {id:"business",  imgs:["https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=300&q=70","https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=300&q=70","https://images.unsplash.com/photo-1521791136064-7986c2920216?w=300&q=70"]},
-                ].find(c=>c.id===catObj.id)?.imgs.map((img,i)=>(
+                ].find(c=>c.id===catObj.id)?.imgs.map((img,i)=>{
+                  const already=propImages.includes(img);
+                  return(
                   <button key={i} type="button"
                     onClick={(e)=>{
                       e.stopPropagation();
                       e.preventDefault();
-                      setPropPreview(img);
-                      setPropForm(p=>({...p,imageUrl:img}));
-                      toast("✅ Image sélectionnée !");
+                      if(already) return;
+                      addPropImage(img);
+                      setPropForm(p=>({...p,imageUrl:p.imageUrl||img}));
+                      toast("✅ Image ajoutée !");
                     }}
-                    style={{padding:0,border:`2px solid transparent`,borderRadius:10,overflow:"hidden",cursor:"pointer",background:"none",transition:"border .2s",display:"block"}}
-                    onMouseEnter={e=>e.currentTarget.style.border=`2px solid ${accent}`}
-                    onMouseLeave={e=>e.currentTarget.style.border="2px solid transparent"}>
+                    style={{padding:0,border:`2px solid ${already?accent:"transparent"}`,borderRadius:10,overflow:"hidden",cursor:already?"default":"pointer",background:"none",transition:"border .2s",display:"block",opacity:already?.5:1,position:"relative"}}
+                    onMouseEnter={e=>{if(!already)e.currentTarget.style.border=`2px solid ${accent}`;}}
+                    onMouseLeave={e=>{if(!already)e.currentTarget.style.border="2px solid transparent";}}>
                     <img src={img} alt=""
                       style={{width:"100%",height:70,objectFit:"cover",display:"block",pointerEvents:"none"}}
                       onError={e=>e.target.parentElement.style.display="none"}/>
+                    {already&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>✅</div>}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -8163,7 +8196,13 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
               const c=AR_CATS.find(x=>x.id===p.category);
               return(
                 <div key={p.id} style={{background:`linear-gradient(135deg,${T.c1},${T.c2})`,border:`1px solid ${T.border}`,borderRadius:16,overflow:"hidden",marginBottom:12}}>
-                  {p.image_url&&<img src={p.image_url} alt="service" style={{width:"100%",height:155,objectFit:"cover",display:"block"}}/>}
+                  {(p.image_urls&&p.image_urls.length>1) ? (
+                    <div style={{display:"flex",gap:2,overflowX:"auto",scrollSnapType:"x mandatory"}}>
+                      {p.image_urls.map((im,i)=>(
+                        <img key={i} src={im} alt="service" style={{minWidth:"100%",width:"100%",height:155,objectFit:"cover",display:"block",scrollSnapAlign:"start",flexShrink:0}}/>
+                      ))}
+                    </div>
+                  ) : (p.image_url&&<img src={p.image_url} alt="service" style={{width:"100%",height:155,objectFit:"cover",display:"block"}}/>)}
                   <div style={{padding:"12px 14px"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
                       <div>
