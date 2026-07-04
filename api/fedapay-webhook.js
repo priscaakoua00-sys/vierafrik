@@ -140,16 +140,38 @@ export default async function handler(req, res) {
 
     // ── CAS 2 : Activation d'un plan d'abonnement ──
     if (uid && plan && plan !== "free" && !invoice_id) {
-      // Mettre à jour le plan dans Supabase Auth
-      await supaRest(
-        `/auth/users/${uid}`,
-        "PUT",
-        { user_metadata: { plan } }
-      ).catch(async () => {
-        // Fallback : via RPC si l'API Auth directe ne fonctionne pas
-        await supaRest("/rpc/update_user_plan", "POST", { user_id: uid, new_plan: plan }).catch(() => {});
-      });
-      actions.push(`plan ${uid} → ${plan}`);
+      // FIX — l'app lit exclusivement la table "subscriptions" (voir loadSubscription
+      // côté client) pour savoir si un utilisateur est actif. L'ancien code mettait à
+      // jour /auth/users/{uid} via /rest/v1, un endpoint qui n'existe pas (l'API Admin
+      // Auth de Supabase vit sous /auth/v1/admin/users, pas /rest/v1/auth/users), donc
+      // l'abonnement n'était jamais réellement activé après un paiement webhook.
+      const paidAt    = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      const existingSubs = await supaRest(`/subscriptions?user_id=eq.${uid}&select=id`).catch(() => []);
+      const existingSub  = existingSubs?.[0];
+
+      if (existingSub?.id) {
+        await supaRest(`/subscriptions?id=eq.${existingSub.id}`, "PATCH", {
+          plan, paid_at: paidAt, expires_at: expiresAt, status: "active", updated_at: paidAt,
+        });
+      } else {
+        await supaRest("/subscriptions", "POST", {
+          id: `fedapay_sub_${transactionId}`,
+          user_id: uid,
+          plan,
+          paid_at: paidAt,
+          expires_at: expiresAt,
+          status: "active",
+          created_at: paidAt,
+          updated_at: paidAt,
+        });
+      }
+      actions.push(`subscription ${uid} → ${plan} (active jusqu'au ${expiresAt})`);
+
+      // Best-effort : garder aussi user_metadata.plan synchronisé via la RPC existante
+      // (non bloquant — la table subscriptions ci-dessus est la source de vérité)
+      await supaRest("/rpc/update_user_plan", "POST", { user_id: uid, new_plan: plan }).catch(() => {});
 
       // Mettre à jour commission ambassadeur si referral
       const refRows = await supaRest(
