@@ -13,7 +13,7 @@ import { createClient } from "@supabase/supabase-js";
 const I18N = {
   fr: {
     // Nav
-    navAction:"⚡ Action Rapide", navDash:"📊 Dashboard", navTx:"💸 Transactions",
+    navAction:"⚡ Action Rapide", navDash:"📊 Tableau de bord", navTx:"💸 Transactions",
     navInv:"🧾 Factures", navCli:"👥 Clients", navCarte:"📇 Carte de visite",
     navLogo:"🎨 Mon Logo", navReseau:"🗺️ Réseau", navStats:"📈 Stats",
     navCoach:"🎥 Coach IA", navPlans:"💎 Plans", navAmbass:"🤝 Ambassadeur",
@@ -39,7 +39,7 @@ const I18N = {
     navbAction:"Action", navbDash:"Accueil", navbInv:"Factures",
     navbReseau:"Réseau", navbCli:"Clients", navbCompte:"Compte",
     // Auth
-    signIn:"🔑 Sign In", signUp:"✨ Sign Up",
+    signIn:"🔑 Se connecter", signUp:"✨ S'inscrire",
     fullName:"Nom complet *", businessName:"Nom du business",
     email:"Email *", password:"Mot de passe *", confirmPwd:"Confirmer *",
     phone:"Téléphone (optionnel)", minChars:"Min. 6 caractères",
@@ -5415,7 +5415,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                 {ic:"💎",label:"Plans",               sub:"Voir les abonnements",   col:T.gold,   fn:()=>{setPage("plans");setShowPanel(false);}},
                 {ic:"🤝",label:"Ambassadeur",         sub:"Inviter et gagner 20%",  col:"#ff5a18",fn:()=>{setPage("ambass");setShowPanel(false);}},
                 {ic:"⭐",label:"Avis clients",        sub:"Notes et commentaires",  col:T.gold,   fn:()=>{setPage("avis");setShowPanel(false);}},
-                {ic:"📊",label:"Voir mes gains",      sub:"Dashboard",              col:T.gr,     fn:()=>{setPage("dash");setShowPanel(false);}},
+                {ic:"📊",label:"Voir mes gains",      sub:"Tableau de bord",              col:T.gr,     fn:()=>{setPage("dash");setShowPanel(false);}},
                 {ic:"📈",label:"Statistiques",        sub:"Analyses détaillées",    col:T.blue,   fn:()=>{setPage("stats");setShowPanel(false);}},
               ].map(({ic,label,sub,col,fn})=>(
                 <button key={label} onClick={fn}
