@@ -15,6 +15,8 @@ export default defineConfig(({ mode }) => {
       'globalThis.__VITE_ENV__': {
         VITE_SUPABASE_ANON_KEY: env.VITE_SUPABASE_ANON_KEY || '',
         VITE_FEDAPAY_PK: env.VITE_FEDAPAY_PK || '',
+        // Mode test des abonnements — mettre à "false" pour activer les paiements réels
+        VITE_PAYMENTS_TEST_MODE: env.VITE_PAYMENTS_TEST_MODE || '',
       },
     },
 
