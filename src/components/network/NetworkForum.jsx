@@ -6,7 +6,149 @@ import { FORUM_CATEGORIES } from "../../data/networkCategories.js";
 // ══════════════════════════════════════════════════════════════
 //  🤝  Forum annonces — messages courts, expirent après 24h
 //  (anciennement ReseauCommerçants, extrait + refonte desktop)
+//
+//  IMPORTANT — Composer/CategoryFilter/MessagesList/MessageCard sont des
+//  composants top-level (pas définis dans le corps de NetworkForum) :
+//  sinon chaque frappe clavier (setNewMsg) redéclenche un render de
+//  NetworkForum, qui recréerait ces fonctions à chaque fois → React les
+//  traite comme un composant différent et démonte/remonte le textarea,
+//  ce qui fait perdre le focus (et le clavier mobile) à chaque lettre.
 // ══════════════════════════════════════════════════════════════
+
+const Composer = ({ accent, T, IS, categorie, setCat, newMsg, setNewMsg, sending, sendMsg }) => (
+  <div style={{ background:`linear-gradient(135deg,${T.c1},${T.c2})`, border:`1px solid ${T.border}`, borderRadius:16, padding:"1.2rem" }}>
+    <div style={{ fontWeight:800, fontSize:12.5, marginBottom:11, display:"flex", alignItems:"center", gap:8 }}>
+      <span style={{ background:`${accent}18`, border:`1px solid ${accent}30`, borderRadius:8, padding:"4px 8px", fontSize:14 }}>✍️</span>
+      Publier une annonce
+    </div>
+    <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:10 }}>
+      {FORUM_CATEGORIES.slice(1).map(c => (
+        <div key={c.id} onClick={() => setCat(c.id)} style={{
+          background: categorie===c.id ? `${accent}25` : T.c3,
+          border: `1px solid ${categorie===c.id ? accent : T.border}`,
+          borderRadius:20, padding:"4px 10px", cursor:"pointer",
+          fontSize:11, fontWeight:700,
+          color: categorie===c.id ? accent : T.sub2,
+        }}>
+          {c.ic} {c.label}
+        </div>
+      ))}
+    </div>
+    <textarea
+      style={{ ...IS, height:80, resize:"none" }}
+      placeholder="Ex: Je cherche 2 personnes pour travailler dans ma boutique aujourd'hui à Abidjan…"
+      value={newMsg}
+      onChange={ev => setNewMsg(ev.target.value)}
+      maxLength={200}
+    />
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:6 }}>
+      <span style={{ fontSize:10, color:T.sub }}>{newMsg.length}/200</span>
+      <button disabled={sending || !newMsg.trim()} onClick={sendMsg} style={{
+        padding:"7px 18px", borderRadius:8, border:"none", cursor:"pointer",
+        fontWeight:700, fontSize:12, background:accent, color:T.ink,
+        fontFamily:"inherit", opacity:sending||!newMsg.trim()?0.45:1,
+      }}>
+        {sending ? "⏳ Envoi…" : "📢 Publier"}
+      </button>
+    </div>
+  </div>
+);
+
+const CategoryFilter = ({ accent, T, isDesktop, filtreId, setFiltreId }) => (
+  <div style={{ background:T.c1, border:`1px solid ${T.border}`, borderRadius:16, padding:"1.1rem" }}>
+    <div style={{ fontSize:10.5, fontWeight:700, textTransform:"uppercase", letterSpacing:".06em", color:T.sub, marginBottom:10 }}>Filtrer</div>
+    <div style={{ display:"flex", flexDirection: isDesktop ? "column" : "row", flexWrap: isDesktop ? "nowrap" : "wrap", gap:7, overflowX: isDesktop ? "visible" : "auto" }}>
+      {FORUM_CATEGORIES.map(c => (
+        <div key={c.id} onClick={() => setFiltreId(c.id)} style={{
+          background: filtreId===c.id ? `${accent}20` : T.c2,
+          border: `1px solid ${filtreId===c.id ? accent : T.border}`,
+          borderRadius:10, padding:"7px 12px", cursor:"pointer",
+          fontSize:11.5, fontWeight:700, flexShrink:0,
+          color: filtreId===c.id ? accent : T.sub2,
+        }}>
+          {c.ic} {c.label}
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const MessageCard = ({ m, i, accent, T, user, timeAgo, timeLeft, onSelect, onDelete }) => {
+  const isOwn = m.user_id === user?.id;
+  const catInfo = FORUM_CATEGORIES.find(c => c.id === m.categorie) || FORUM_CATEGORIES[0];
+  const isTruncated = (m.message||"").length > 90;
+  return (
+    <div key={m.id || i} onClick={() => onSelect(m)} style={{
+      background: isOwn ? `${accent}12` : T.c2,
+      border: `1px solid ${isOwn ? accent+"44" : T.border}`,
+      borderRadius:14, padding:"14px 15px", cursor:"pointer",
+      display:"flex", flexDirection:"column", height:"100%",
+    }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:9, gap:8 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:0 }}>
+          <div style={{ width:32, height:32, borderRadius:"50%", background:`linear-gradient(135deg,${accent},#00bfcc)`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:11, color:T.ink, flexShrink:0 }}>
+            {(m.user_name||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
+          </div>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontWeight:700, fontSize:12, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+              {m.user_name||"Commerçant"}
+              {isOwn && <span style={{ fontSize:9, color:accent, marginLeft:5, fontWeight:800 }}>• Vous</span>}
+            </div>
+            {m.business && <div style={{ fontSize:10, color:T.sub2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{m.business}</div>}
+          </div>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+          <span style={{ fontSize:10, color:T.sub }}>{timeAgo(m.created_at)}</span>
+          {isOwn && (
+            <button onClick={(e) => { e.stopPropagation(); onDelete(m.id); }} style={{ background:"rgba(255,34,85,.12)", border:"1px solid rgba(255,34,85,.2)", borderRadius:6, cursor:"pointer", color:"#ff2255", fontSize:10, padding:"2px 6px", fontFamily:"inherit" }}>🗑️</button>
+          )}
+        </div>
+      </div>
+      <div style={{ fontSize:13, color:T.text, lineHeight:1.6, marginBottom:10, flex:1 }}>
+        {isTruncated ? (m.message||"").slice(0,90)+"…" : m.message}
+      </div>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          {m.categorie && m.categorie !== "all" && (
+            <span style={{ background:`${accent}15`, borderRadius:20, padding:"2px 8px", fontSize:9, fontWeight:700, color:accent }}>{catInfo.ic} {catInfo.label}</span>
+          )}
+          {m.pays && <span style={{ fontSize:10, color:T.sub }}>{countryLabel(m.pays)||("🌍 "+m.pays)}</span>}
+        </div>
+        <span style={{ fontSize:9, color:T.sub }}>{timeLeft(m.created_at)}</span>
+      </div>
+    </div>
+  );
+};
+
+const cardsGrid = { display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:14, alignItems:"stretch" };
+
+const MessagesList = ({ msgsFiltres, loading, T, accent, user, timeAgo, timeLeft, onSelect, onDelete }) => (
+  <div>
+    <div style={{ fontWeight:800, fontSize:13, marginBottom:14, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+        <span style={{ background:`${T.gr}18`, border:`1px solid ${T.gr}30`, borderRadius:8, padding:"4px 8px", fontSize:14 }}>💬</span>
+        Annonces ({msgsFiltres.length})
+      </div>
+      <span style={{ fontSize:10, color:T.sub }}>🔄 Auto 15s</span>
+    </div>
+    {loading ? (
+      <div style={{ textAlign:"center", padding:"2rem", color:T.sub, fontSize:12 }}>⏳ Chargement…</div>
+    ) : msgsFiltres.length === 0 ? (
+      <div style={{ textAlign:"center", padding:"2.5rem", color:T.sub, background:T.c1, border:`1px solid ${T.border}`, borderRadius:16 }}>
+        <div style={{ fontSize:40, marginBottom:8 }}>🤝</div>
+        <div style={{ fontWeight:700, fontSize:13, marginBottom:4 }}>Réseau vide pour l'instant</div>
+        <div style={{ fontSize:11 }}>Soyez le premier à publier une annonce !</div>
+      </div>
+    ) : (
+      <div style={cardsGrid}>
+        {msgsFiltres.map((m, i) => (
+          <MessageCard key={m.id||i} m={m} i={i} accent={accent} T={T} user={user} timeAgo={timeAgo} timeLeft={timeLeft} onSelect={onSelect} onDelete={onDelete}/>
+        ))}
+      </div>
+    )}
+  </div>
+);
+
 export default function NetworkForum({ user, supabase, accent = "#00d478", toast }) {
   const [msgs, setMsgs]         = useState([]);
   const [newMsg, setNewMsg]     = useState("");
@@ -121,140 +263,6 @@ export default function NetworkForum({ user, supabase, accent = "#00d478", toast
 
   const msgsFiltres = msgs.filter(m => filtreId === "all" ? true : m.categorie === filtreId);
 
-  // ── Composer une annonce ──
-  const Composer = () => (
-    <div style={{ background:`linear-gradient(135deg,${T.c1},${T.c2})`, border:`1px solid ${T.border}`, borderRadius:16, padding:"1.2rem" }}>
-      <div style={{ fontWeight:800, fontSize:12.5, marginBottom:11, display:"flex", alignItems:"center", gap:8 }}>
-        <span style={{ background:`${accent}18`, border:`1px solid ${accent}30`, borderRadius:8, padding:"4px 8px", fontSize:14 }}>✍️</span>
-        Publier une annonce
-      </div>
-      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:10 }}>
-        {FORUM_CATEGORIES.slice(1).map(c => (
-          <div key={c.id} onClick={() => setCat(c.id)} style={{
-            background: categorie===c.id ? `${accent}25` : T.c3,
-            border: `1px solid ${categorie===c.id ? accent : T.border}`,
-            borderRadius:20, padding:"4px 10px", cursor:"pointer",
-            fontSize:11, fontWeight:700,
-            color: categorie===c.id ? accent : T.sub2,
-          }}>
-            {c.ic} {c.label}
-          </div>
-        ))}
-      </div>
-      <textarea
-        style={{ ...IS, height:80, resize:"none" }}
-        placeholder="Ex: Je cherche 2 personnes pour travailler dans ma boutique aujourd'hui à Abidjan…"
-        value={newMsg}
-        onChange={ev => setNewMsg(ev.target.value)}
-        maxLength={200}
-      />
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:6 }}>
-        <span style={{ fontSize:10, color:T.sub }}>{newMsg.length}/200</span>
-        <button disabled={sending || !newMsg.trim()} onClick={sendMsg} style={{
-          padding:"7px 18px", borderRadius:8, border:"none", cursor:"pointer",
-          fontWeight:700, fontSize:12, background:accent, color:T.ink,
-          fontFamily:"inherit", opacity:sending||!newMsg.trim()?0.45:1,
-        }}>
-          {sending ? "⏳ Envoi…" : "📢 Publier"}
-        </button>
-      </div>
-    </div>
-  );
-
-  // ── Filtre catégorie ──
-  const CategoryFilter = () => (
-    <div style={{ background:T.c1, border:`1px solid ${T.border}`, borderRadius:16, padding:"1.1rem" }}>
-      <div style={{ fontSize:10.5, fontWeight:700, textTransform:"uppercase", letterSpacing:".06em", color:T.sub, marginBottom:10 }}>Filtrer</div>
-      <div style={{ display:"flex", flexDirection: isDesktop ? "column" : "row", flexWrap: isDesktop ? "nowrap" : "wrap", gap:7, overflowX: isDesktop ? "visible" : "auto" }}>
-        {FORUM_CATEGORIES.map(c => (
-          <div key={c.id} onClick={() => setFiltreId(c.id)} style={{
-            background: filtreId===c.id ? `${accent}20` : T.c2,
-            border: `1px solid ${filtreId===c.id ? accent : T.border}`,
-            borderRadius:10, padding:"7px 12px", cursor:"pointer",
-            fontSize:11.5, fontWeight:700, flexShrink:0,
-            color: filtreId===c.id ? accent : T.sub2,
-          }}>
-            {c.ic} {c.label}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
-  const MessageCard = ({ m, i }) => {
-    const isOwn = m.user_id === user?.id;
-    const catInfo = FORUM_CATEGORIES.find(c => c.id === m.categorie) || FORUM_CATEGORIES[0];
-    const isTruncated = (m.message||"").length > 90;
-    return (
-      <div key={m.id || i} onClick={() => setSelectedMsg(m)} style={{
-        background: isOwn ? `${accent}12` : T.c2,
-        border: `1px solid ${isOwn ? accent+"44" : T.border}`,
-        borderRadius:14, padding:"14px 15px", cursor:"pointer",
-        display:"flex", flexDirection:"column", height:"100%",
-      }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:9, gap:8 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:0 }}>
-            <div style={{ width:32, height:32, borderRadius:"50%", background:`linear-gradient(135deg,${accent},#00bfcc)`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:11, color:T.ink, flexShrink:0 }}>
-              {(m.user_name||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
-            </div>
-            <div style={{ minWidth:0 }}>
-              <div style={{ fontWeight:700, fontSize:12, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                {m.user_name||"Commerçant"}
-                {isOwn && <span style={{ fontSize:9, color:accent, marginLeft:5, fontWeight:800 }}>• Vous</span>}
-              </div>
-              {m.business && <div style={{ fontSize:10, color:T.sub2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{m.business}</div>}
-            </div>
-          </div>
-          <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
-            <span style={{ fontSize:10, color:T.sub }}>{timeAgo(m.created_at)}</span>
-            {isOwn && (
-              <button onClick={(e) => { e.stopPropagation(); deleteMsg(m.id); }} style={{ background:"rgba(255,34,85,.12)", border:"1px solid rgba(255,34,85,.2)", borderRadius:6, cursor:"pointer", color:"#ff2255", fontSize:10, padding:"2px 6px", fontFamily:"inherit" }}>🗑️</button>
-            )}
-          </div>
-        </div>
-        <div style={{ fontSize:13, color:T.text, lineHeight:1.6, marginBottom:10, flex:1 }}>
-          {isTruncated ? (m.message||"").slice(0,90)+"…" : m.message}
-        </div>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-            {m.categorie && m.categorie !== "all" && (
-              <span style={{ background:`${accent}15`, borderRadius:20, padding:"2px 8px", fontSize:9, fontWeight:700, color:accent }}>{catInfo.ic} {catInfo.label}</span>
-            )}
-            {m.pays && <span style={{ fontSize:10, color:T.sub }}>{countryLabel(m.pays)||("🌍 "+m.pays)}</span>}
-          </div>
-          <span style={{ fontSize:9, color:T.sub }}>{timeLeft(m.created_at)}</span>
-        </div>
-      </div>
-    );
-  };
-
-  const cardsGrid = { display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:14, alignItems:"stretch" };
-
-  const MessagesList = () => (
-    <div>
-      <div style={{ fontWeight:800, fontSize:13, marginBottom:14, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-          <span style={{ background:`${T.gr}18`, border:`1px solid ${T.gr}30`, borderRadius:8, padding:"4px 8px", fontSize:14 }}>💬</span>
-          Annonces ({msgsFiltres.length})
-        </div>
-        <span style={{ fontSize:10, color:T.sub }}>🔄 Auto 15s</span>
-      </div>
-      {loading ? (
-        <div style={{ textAlign:"center", padding:"2rem", color:T.sub, fontSize:12 }}>⏳ Chargement…</div>
-      ) : msgsFiltres.length === 0 ? (
-        <div style={{ textAlign:"center", padding:"2.5rem", color:T.sub, background:T.c1, border:`1px solid ${T.border}`, borderRadius:16 }}>
-          <div style={{ fontSize:40, marginBottom:8 }}>🤝</div>
-          <div style={{ fontWeight:700, fontSize:13, marginBottom:4 }}>Réseau vide pour l'instant</div>
-          <div style={{ fontSize:11 }}>Soyez le premier à publier une annonce !</div>
-        </div>
-      ) : (
-        <div style={cardsGrid}>
-          {msgsFiltres.map((m, i) => <MessageCard key={m.id||i} m={m} i={i}/>)}
-        </div>
-      )}
-    </div>
-  );
-
   return (
     <div style={{ fontFamily:"'Inter','Segoe UI',system-ui,sans-serif", color:T.text }}>
       <div style={{ background:`${accent}12`, border:`1px solid ${accent}22`, borderRadius:8, padding:"6px 12px", marginBottom:18, fontSize:11, color:accent, fontWeight:600 }}>
@@ -264,16 +272,22 @@ export default function NetworkForum({ user, supabase, accent = "#00d478", toast
       {isDesktop ? (
         <div style={{ display:"flex", gap:24, alignItems:"flex-start" }}>
           <div style={{ width:280, flexShrink:0, position:"sticky", top:78, display:"flex", flexDirection:"column", gap:16 }}>
-            <Composer/>
-            <CategoryFilter/>
+            <Composer accent={accent} T={T} IS={IS} categorie={categorie} setCat={setCat} newMsg={newMsg} setNewMsg={setNewMsg} sending={sending} sendMsg={sendMsg}/>
+            <CategoryFilter accent={accent} T={T} isDesktop={isDesktop} filtreId={filtreId} setFiltreId={setFiltreId}/>
           </div>
-          <div style={{ flex:1, minWidth:0 }}><MessagesList/></div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <MessagesList msgsFiltres={msgsFiltres} loading={loading} T={T} accent={accent} user={user} timeAgo={timeAgo} timeLeft={timeLeft} onSelect={setSelectedMsg} onDelete={deleteMsg}/>
+          </div>
         </div>
       ) : (
         <div>
-          <div style={{ marginBottom:16 }}><Composer/></div>
-          <div style={{ marginBottom:16 }}><CategoryFilter/></div>
-          <MessagesList/>
+          <div style={{ marginBottom:16 }}>
+            <Composer accent={accent} T={T} IS={IS} categorie={categorie} setCat={setCat} newMsg={newMsg} setNewMsg={setNewMsg} sending={sending} sendMsg={sendMsg}/>
+          </div>
+          <div style={{ marginBottom:16 }}>
+            <CategoryFilter accent={accent} T={T} isDesktop={isDesktop} filtreId={filtreId} setFiltreId={setFiltreId}/>
+          </div>
+          <MessagesList msgsFiltres={msgsFiltres} loading={loading} T={T} accent={accent} user={user} timeAgo={timeAgo} timeLeft={timeLeft} onSelect={setSelectedMsg} onDelete={deleteMsg}/>
         </div>
       )}
 

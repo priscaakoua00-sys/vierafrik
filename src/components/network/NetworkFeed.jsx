@@ -12,6 +12,98 @@ import { DEMO_NETWORK_POSTS, DEMO_VISIBLE_THRESHOLD } from "../../data/demoNetwo
 //  (anciennement CommerçantsProches, extrait + refonte desktop)
 //  "Je vois → je choisis → je contacte"
 // ══════════════════════════════════════════════════════════════
+
+// ── Carte "Mon profil" — compacte, vit dans la sidebar en desktop ──
+// Top-level (pas défini dans le corps de NetworkFeed) : sinon chaque
+// changement d'état (filtre, note, etc.) redéclenche un render de
+// NetworkFeed qui recréerait cette fonction à chaque fois → React la
+// traite comme un composant différent et démonte/remonte tout son
+// sous-arbre à chaque interaction (voir même bug corrigé dans NetworkForum).
+const ProfileCard = ({ accent, Tc, myProfile, userName, onEdit }) => (
+  <div style={{ background:`linear-gradient(135deg,${accent}12,${Tc.c1})`, border:`1px solid ${accent}33`, borderRadius:16, padding:"1.1rem" }}>
+    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+      <div style={{ width:38, height:38, borderRadius:12, flexShrink:0, background:`linear-gradient(135deg,${accent},${Tc.teal})`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, color:Tc.ink }}>
+        {(userName||myProfile?.nom||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
+      </div>
+      <div style={{ minWidth:0, flex:1 }}>
+        <div style={{ fontWeight:800, fontSize:12.5 }}>{myProfile ? "Profil visible" : "Pas encore visible"}</div>
+        {myProfile ? (
+          <div style={{ fontSize:11, color:Tc.sub2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{myProfile.activite}{myProfile.ville?` · ${myProfile.ville}`:""}</div>
+        ) : (
+          <div style={{ fontSize:11, color:Tc.sub2 }}>Sois vu par des milliers d'entrepreneurs</div>
+        )}
+      </div>
+    </div>
+    <button onClick={onEdit} style={{ marginTop:12, width:"100%", padding:"9px", borderRadius:10, border:"none", background:`linear-gradient(135deg,${accent},${Tc.teal})`, color:Tc.ink, cursor:"pointer", fontFamily:"inherit", fontWeight:800, fontSize:12 }}>
+      {myProfile ? "✏️ Modifier mon profil" : "➕ Rejoindre le réseau"}
+    </button>
+  </div>
+);
+
+// ── Filtres (catégorie + pays + ville) ── — layout vertical (sidebar desktop) ou horizontal (mobile)
+const FiltersPanel = ({ accent, Tc, IS2, isDesktop, filterCat, setFilterCat, filterPays, setFilterPays, filterVille, setFilterVille }) => (
+  <div style={{ background:Tc.c1, border:`1px solid ${Tc.border}`, borderRadius:16, padding:"1.1rem" }}>
+    <div style={{ fontSize:10.5, fontWeight:700, textTransform:"uppercase", letterSpacing:".06em", color:Tc.sub, marginBottom:10 }}>Filtrer</div>
+    <div style={{ display:"flex", flexDirection: isDesktop ? "column" : "row", flexWrap: isDesktop ? "nowrap" : "wrap", gap:7, marginBottom:12, overflowX: isDesktop ? "visible" : "auto", paddingBottom: isDesktop ? 0 : 4 }}>
+      {FEED_CATEGORIES.map(c => (
+        <button key={c.id} onClick={()=>setFilterCat(c.id)}
+          style={{ flexShrink:0, textAlign:"left", padding:"7px 12px", borderRadius:10, border:`1px solid ${filterCat===c.id?accent:Tc.border}`, background:filterCat===c.id?`${accent}20`:Tc.c2, color:filterCat===c.id?accent:Tc.sub2, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:11.5, whiteSpace:"nowrap" }}>
+          {c.emoji} {c.label}
+        </button>
+      ))}
+    </div>
+    <div style={{ display:"grid", gap:8 }}>
+      <select value={filterPays} onChange={e=>{setFilterPays(e.target.value);setFilterVille("");}} style={IS2}>
+        <option value="">🌍 Tous les pays</option>
+        {COUNTRIES.map(c=><option key={c.code} value={c.code}>{c.flag} {c.name}</option>)}
+      </select>
+      <select value={filterVille} onChange={e=>setFilterVille(e.target.value)} style={IS2}>
+        <option value="">📍 Toutes les villes</option>
+        {(filterPays ? getCitiesForCountry(filterPays) : Array.from(new Set(COUNTRIES.flatMap(c=>c.cities))).sort()).map(v=><option key={v} value={v}>{v}</option>)}
+      </select>
+      {(filterCat||filterPays||filterVille) && (
+        <button onClick={()=>{setFilterCat("");setFilterPays("");setFilterVille("");}}
+          style={{ padding:"8px", borderRadius:10, border:`1px solid ${Tc.border}`, background:Tc.c2, color:Tc.sub2, cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:600 }}>
+          ✕ Réinitialiser les filtres
+        </button>
+      )}
+    </div>
+  </div>
+);
+
+const cardsGrid = { display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:16, alignItems:"stretch" };
+
+const Feed = ({ Tc, accent, isDesktop, loading, visiblePosts, realPosts, ratingMap, ratePost, doCall, doWA, onAddClient, onCreateInvoice, onPayment, onEdit }) => (
+  <>
+    <div style={{ fontSize:12, color:Tc.sub, marginBottom:14, fontWeight:600 }}>
+      {realPosts.length} commerçant{realPosts.length>1?"s":""} · Réseau VierAfrik
+    </div>
+    {loading ? (
+      <div style={cardsGrid}>{Array.from({length: isDesktop?6:3}).map((_,k)=><SkeletonCard key={k} Tc={Tc}/>)}</div>
+    ) : visiblePosts.length === 0 ? (
+      <div style={{ textAlign:"center", padding:"3rem 1.5rem", background:Tc.c1, border:`1px solid ${Tc.border}`, borderRadius:20, maxWidth:440, margin:"0 auto" }}>
+        <div style={{ fontSize:52, marginBottom:12 }}>🌍</div>
+        <div style={{ fontWeight:800, fontSize:16, marginBottom:6 }}>Sois le premier !</div>
+        <div style={{ fontSize:12, color:Tc.sub2, marginBottom:16, lineHeight:1.5 }}>
+          Rejoins le réseau pour être visible par des milliers d'entrepreneurs africains.
+        </div>
+        <button onClick={onEdit}
+          style={{ padding:"11px 22px", borderRadius:12, border:"none", background:`linear-gradient(135deg,${accent},${Tc.teal})`, color:Tc.ink, cursor:"pointer", fontFamily:"inherit", fontWeight:800, fontSize:13 }}>
+          ➕ Rejoindre le réseau
+        </button>
+      </div>
+    ) : (
+      <div style={cardsGrid}>
+        {visiblePosts.map((c,i)=>(
+          <FeedCard key={c.id||i} c={c} i={i} accent={accent} Tc={Tc} ratingMap={ratingMap} onRate={ratePost}
+            doCall={doCall} doWA={doWA} onAddClient={onAddClient} onCreateInvoice={onCreateInvoice} onPayment={onPayment}
+            CATS_VIS={FEED_CATEGORIES} CAT_IMG={FEED_CATEGORY_IMAGES}/>
+        ))}
+      </div>
+    )}
+  </>
+);
+
 export default function NetworkFeed({ user, supabase, accent="#00d478", toast, plan="free", onAddClient, onCreateInvoice, onPayment }) {
 
   const Tc = {
@@ -124,109 +216,23 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
   const demoPosts = showDemo ? DEMO_NETWORK_POSTS.map(d => ({...d, __onDemoBlocked:demoBlocked})) : [];
   const visiblePosts = [...realPosts, ...demoPosts];
 
-  // ── Carte "Mon profil" — compacte, vit dans la sidebar en desktop ──
-  const ProfileCard = () => (
-    <div style={{ background:`linear-gradient(135deg,${accent}12,${Tc.c1})`, border:`1px solid ${accent}33`, borderRadius:16, padding:"1.1rem" }}>
-      <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-        <div style={{ width:38, height:38, borderRadius:12, flexShrink:0, background:`linear-gradient(135deg,${accent},${Tc.teal})`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:14, color:Tc.ink }}>
-          {(user?.name||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
-        </div>
-        <div style={{ minWidth:0, flex:1 }}>
-          <div style={{ fontWeight:800, fontSize:12.5 }}>{myProfile ? "Profil visible" : "Pas encore visible"}</div>
-          {myProfile ? (
-            <div style={{ fontSize:11, color:Tc.sub2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{myProfile.activite}{myProfile.ville?` · ${myProfile.ville}`:""}</div>
-          ) : (
-            <div style={{ fontSize:11, color:Tc.sub2 }}>Sois vu par des milliers d'entrepreneurs</div>
-          )}
-        </div>
-      </div>
-      <button onClick={()=>setEditOpen(true)} style={{ marginTop:12, width:"100%", padding:"9px", borderRadius:10, border:"none", background:`linear-gradient(135deg,${accent},${Tc.teal})`, color:Tc.ink, cursor:"pointer", fontFamily:"inherit", fontWeight:800, fontSize:12 }}>
-        {myProfile ? "✏️ Modifier mon profil" : "➕ Rejoindre le réseau"}
-      </button>
-    </div>
-  );
-
-  // ── Filtres (catégorie + pays + ville) ── — layout vertical (sidebar desktop) ou horizontal (mobile)
-  const FiltersPanel = () => (
-    <div style={{ background:Tc.c1, border:`1px solid ${Tc.border}`, borderRadius:16, padding:"1.1rem" }}>
-      <div style={{ fontSize:10.5, fontWeight:700, textTransform:"uppercase", letterSpacing:".06em", color:Tc.sub, marginBottom:10 }}>Filtrer</div>
-      <div style={{ display:"flex", flexDirection: isDesktop ? "column" : "row", flexWrap: isDesktop ? "nowrap" : "wrap", gap:7, marginBottom:12, overflowX: isDesktop ? "visible" : "auto", paddingBottom: isDesktop ? 0 : 4 }}>
-        {FEED_CATEGORIES.map(c => (
-          <button key={c.id} onClick={()=>setFilterCat(c.id)}
-            style={{ flexShrink:0, textAlign:"left", padding:"7px 12px", borderRadius:10, border:`1px solid ${filterCat===c.id?accent:Tc.border}`, background:filterCat===c.id?`${accent}20`:Tc.c2, color:filterCat===c.id?accent:Tc.sub2, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:11.5, whiteSpace:"nowrap" }}>
-            {c.emoji} {c.label}
-          </button>
-        ))}
-      </div>
-      <div style={{ display:"grid", gap:8 }}>
-        <select value={filterPays} onChange={e=>{setFilterPays(e.target.value);setFilterVille("");}} style={IS2}>
-          <option value="">🌍 Tous les pays</option>
-          {COUNTRIES.map(c=><option key={c.code} value={c.code}>{c.flag} {c.name}</option>)}
-        </select>
-        <select value={filterVille} onChange={e=>setFilterVille(e.target.value)} style={IS2}>
-          <option value="">📍 Toutes les villes</option>
-          {(filterPays ? getCitiesForCountry(filterPays) : Array.from(new Set(COUNTRIES.flatMap(c=>c.cities))).sort()).map(v=><option key={v} value={v}>{v}</option>)}
-        </select>
-        {(filterCat||filterPays||filterVille) && (
-          <button onClick={()=>{setFilterCat("");setFilterPays("");setFilterVille("");}}
-            style={{ padding:"8px", borderRadius:10, border:`1px solid ${Tc.border}`, background:Tc.c2, color:Tc.sub2, cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:600 }}>
-            ✕ Réinitialiser les filtres
-          </button>
-        )}
-      </div>
-    </div>
-  );
-
-  const cardsGrid = { display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:16, alignItems:"stretch" };
-
-  const Feed = () => (
-    <>
-      <div style={{ fontSize:12, color:Tc.sub, marginBottom:14, fontWeight:600 }}>
-        {realPosts.length} commerçant{realPosts.length>1?"s":""} · Réseau VierAfrik
-      </div>
-      {loading ? (
-        <div style={cardsGrid}>{Array.from({length: isDesktop?6:3}).map((_,k)=><SkeletonCard key={k} Tc={Tc}/>)}</div>
-      ) : visiblePosts.length === 0 ? (
-        <div style={{ textAlign:"center", padding:"3rem 1.5rem", background:Tc.c1, border:`1px solid ${Tc.border}`, borderRadius:20, maxWidth:440, margin:"0 auto" }}>
-          <div style={{ fontSize:52, marginBottom:12 }}>🌍</div>
-          <div style={{ fontWeight:800, fontSize:16, marginBottom:6 }}>Sois le premier !</div>
-          <div style={{ fontSize:12, color:Tc.sub2, marginBottom:16, lineHeight:1.5 }}>
-            Rejoins le réseau pour être visible par des milliers d'entrepreneurs africains.
-          </div>
-          <button onClick={()=>setEditOpen(true)}
-            style={{ padding:"11px 22px", borderRadius:12, border:"none", background:`linear-gradient(135deg,${accent},${Tc.teal})`, color:Tc.ink, cursor:"pointer", fontFamily:"inherit", fontWeight:800, fontSize:13 }}>
-            ➕ Rejoindre le réseau
-          </button>
-        </div>
-      ) : (
-        <div style={cardsGrid}>
-          {visiblePosts.map((c,i)=>(
-            <FeedCard key={c.id||i} c={c} i={i} accent={accent} Tc={Tc} ratingMap={ratingMap} onRate={ratePost}
-              doCall={doCall} doWA={doWA} onAddClient={onAddClient} onCreateInvoice={onCreateInvoice} onPayment={onPayment}
-              CATS_VIS={FEED_CATEGORIES} CAT_IMG={FEED_CATEGORY_IMAGES}/>
-          ))}
-        </div>
-      )}
-    </>
-  );
-
   return (
     <div style={{ fontFamily:"'Inter','Segoe UI',system-ui,sans-serif", color:Tc.text }}>
       {isDesktop ? (
         <div style={{ display:"flex", gap:24, alignItems:"flex-start" }}>
           <div style={{ width:280, flexShrink:0, position:"sticky", top:78, display:"flex", flexDirection:"column", gap:16 }}>
-            <ProfileCard/>
-            <FiltersPanel/>
+            <ProfileCard accent={accent} Tc={Tc} myProfile={myProfile} userName={user?.name} onEdit={()=>setEditOpen(true)}/>
+            <FiltersPanel accent={accent} Tc={Tc} IS2={IS2} isDesktop={isDesktop} filterCat={filterCat} setFilterCat={setFilterCat} filterPays={filterPays} setFilterPays={setFilterPays} filterVille={filterVille} setFilterVille={setFilterVille}/>
           </div>
           <div style={{ flex:1, minWidth:0 }}>
-            <Feed/>
+            <Feed Tc={Tc} accent={accent} isDesktop={isDesktop} loading={loading} visiblePosts={visiblePosts} realPosts={realPosts} ratingMap={ratingMap} ratePost={ratePost} doCall={doCall} doWA={doWA} onAddClient={onAddClient} onCreateInvoice={onCreateInvoice} onPayment={onPayment} onEdit={()=>setEditOpen(true)}/>
           </div>
         </div>
       ) : (
         <div>
-          <div style={{ marginBottom:16 }}><ProfileCard/></div>
-          <div style={{ marginBottom:16 }}><FiltersPanel/></div>
-          <Feed/>
+          <div style={{ marginBottom:16 }}><ProfileCard accent={accent} Tc={Tc} myProfile={myProfile} userName={user?.name} onEdit={()=>setEditOpen(true)}/></div>
+          <div style={{ marginBottom:16 }}><FiltersPanel accent={accent} Tc={Tc} IS2={IS2} isDesktop={isDesktop} filterCat={filterCat} setFilterCat={setFilterCat} filterPays={filterPays} setFilterPays={setFilterPays} filterVille={filterVille} setFilterVille={setFilterVille}/></div>
+          <Feed Tc={Tc} accent={accent} isDesktop={isDesktop} loading={loading} visiblePosts={visiblePosts} realPosts={realPosts} ratingMap={ratingMap} ratePost={ratePost} doCall={doCall} doWA={doWA} onAddClient={onAddClient} onCreateInvoice={onCreateInvoice} onPayment={onPayment} onEdit={()=>setEditOpen(true)}/>
         </div>
       )}
 
