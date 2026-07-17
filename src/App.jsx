@@ -6,6 +6,7 @@ import { useMediaQuery, useViewport, BREAKPOINTS } from "./hooks/useMediaQuery.j
 import NetworkShell from "./components/network/NetworkShell.jsx";
 import CoachIA from "./components/coach/CoachIA.jsx";
 import { PLANS, INF, TEST_MODE, TRIAL_DAYS, TRIAL_PLAN, ROLE_LABELS } from "./data/pricing.js";
+import { downloadPdfFromHtml } from "./utils/pdfExport.js";
 
 // ══════════════════════════════════════════════════════
 // App v34 — Freemium découverte (base v31 intacte) :
@@ -2865,17 +2866,14 @@ function Dashboard({ses,logout,updSes}){
   const [showAvisPopup,setShowAvisPopup]=useState(false);
   const [showWelcomeVideo,setShowWelcomeVideo]=useState(false);
 
-  // ── Impression / PDF en place — remplace l'ancien window.open("","_blank")
-  //  qui « envoyait sur une autre page ». Le document est injecté dans la
-  //  page courante puis imprimé via window.print(), scoping CSS ci-dessous. ──
-  const [printHTML,setPrintHTML]=useState(null);
-  const doPrint=(html)=>{
-    setPrintHTML(html);
-    requestAnimationFrame(()=>{
-      setTimeout(()=>{
-        window.print();
-        setPrintHTML(null);
-      },60);
+  // ── PDF téléchargeable en place — remplace l'ancien window.open("","_blank")
+  //  puis le window.print()/CSS @media print qui donnait une page blanche ou
+  //  ouvrait un onglet séparé sur mobile (comportement navigateur instable).
+  //  downloadPdfFromHtml() rend le fragment hors-écran et télécharge un vrai
+  //  fichier .pdf, sans dépendre du dialogue d'impression du navigateur. ──
+  const doPrint=(html,filename)=>{
+    downloadPdfFromHtml(html, filename||"document.pdf").catch(()=>{
+      toast("❌ Erreur génération PDF — réessayez.","err");
     });
   };
 
@@ -3686,7 +3684,7 @@ function Dashboard({ses,logout,updSes}){
     const stKey=inv.status||"pending";
     const cur=inv.currency||DEFAULT_CURRENCY;
     const fp=n=>fmtPrice(n,cur);
-    // Imprimé en place (voir doPrint) — plus de nouvel onglet/fenêtre.
+    // Téléchargé en vrai PDF (voir doPrint) — plus de dialogue d'impression instable.
     doPrint(`
 <style>#print-area *{box-sizing:border-box}#print-area{font-family:sans-serif;padding:40px;max-width:740px;margin:0 auto;font-size:13px;color:#111;background:#fff}
 #print-area .hdr{display:flex;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #00d478}
@@ -3715,8 +3713,8 @@ ${(inv.items||[]).map(it=>`<tr><td>${it.name}</td><td>${it.qty||1}</td><td>${fp(
 ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-size:12px;color:#555;margin-bottom:12px"><strong>Notes :</strong> ${inv.notes}</div>`:""}
 <div class="pay"><strong>💳 Paiement accepté :</strong><br><span style="font-size:12px;color:#555">Orange Money · MTN · Wave · CinetPay · Paystack</span></div>
 <div class="foot">VierAfrik · Gagne de l'argent en Afrique 🌍 · ${today()}</div>
-<div style="margin:16px 0;text-align:center;padding:14px;background:#f2fdf7;border-radius:12px;border:1px solid #00d47830"><div style="font-size:11px;font-weight:700;color:#555;margin-bottom:8px">📲 Scanner pour payer via Mobile Money</div><img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent((window.location.origin||"https://vierafrik.com")+"/?pay="+inv.id)}" style="width:120px;height:120px;border-radius:8px" /><div style="font-size:10px;color:#888;margin-top:6px">Wave · Orange Money · MTN · vierafrik.com</div></div>`);
-    toast("📄 Facture prête — impression en cours…");
+<div style="margin:16px 0;text-align:center;padding:14px;background:#f2fdf7;border-radius:12px;border:1px solid #00d47830"><div style="font-size:11px;font-weight:700;color:#555;margin-bottom:8px">📲 Scanner pour payer via Mobile Money</div><img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent((window.location.origin||"https://vierafrik.com")+"/?pay="+inv.id)}" style="width:120px;height:120px;border-radius:8px" /><div style="font-size:10px;color:#888;margin-top:6px">Wave · Orange Money · MTN · vierafrik.com</div></div>`, `Facture-${inv.num}.pdf`);
+    toast("📄 Génération du PDF…");
   };
 
   // WhatsApp
@@ -4795,9 +4793,8 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             const businessPhone = ses.phone || "";
             const receiptNum = `REC-${lastReceipt.receiptId}`;
 
-            // ── Impression HTML dans une nouvelle fenêtre ──
+            // ── Téléchargement du reçu en vrai PDF (voir doPrint) ──
             const handlePrint = () => {
-              // Imprimé en place (voir doPrint) — plus de nouvel onglet/fenêtre.
               const html = `
 <style>
   #print-area * { box-sizing:border-box; }
@@ -4870,8 +4867,8 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     ${receiptNum} · ${lastReceipt.date}<br/>
     Ce document constitue une preuve de paiement de salaire.
   </div>`;
-              doPrint(html);
-              toast("🧾 Reçu prêt — impression en cours…");
+              doPrint(html, `${receiptNum}.pdf`);
+              toast("🧾 Génération du PDF…");
             };
 
             // ── Partage WhatsApp ──
@@ -4914,7 +4911,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
                   <button onClick={handlePrint}
                     style={{ padding:"12px 8px", background:`${T.blue}15`, border:`1px solid ${T.blue}44`, borderRadius:11, color:T.blue, cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-                    🖨️ Imprimer / PDF
+                    📄 Télécharger PDF
                   </button>
                   <button onClick={handleWhatsApp}
                     style={{ padding:"12px 8px", background:"rgba(37,211,102,.12)", border:"1px solid rgba(37,211,102,.35)", borderRadius:11, color:"#25D366", cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
@@ -7217,14 +7214,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
           .pg-grid-kpi{grid-template-columns:1fr 1fr!important}
           .hide-mobile{display:none!important}
         }
-        #print-area{display:none}
-        @media print{
-          body *{visibility:hidden}
-          #print-area,#print-area *{visibility:visible}
-          #print-area{display:block!important;position:absolute;left:0;top:0;width:100%;margin:0;padding:0}
-        }
       `}</style>
-      {printHTML && <div id="print-area" dangerouslySetInnerHTML={{__html:printHTML}}/>}
       {loading&&<div style={{position:"fixed",inset:0,background:T.bg,zIndex:999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:20}}>
         <div style={{width:72,height:72,borderRadius:20,background:`linear-gradient(135deg,${accent},${T.teal})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,boxShadow:`0 0 60px ${accent}44`,animation:"pop .4s cubic-bezier(.34,1.56,.64,1)"}}>🌍</div>
         <div style={{width:40,height:40,border:`3px solid ${T.c3}`,borderTop:`3px solid ${accent}`,borderRadius:"50%",animation:"spin .75s linear infinite"}}/>
