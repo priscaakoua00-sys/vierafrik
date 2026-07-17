@@ -1046,6 +1046,9 @@ function PublicPayPage({ invoiceId }) {
   const [paying, setPaying] = useState(false);
   const [paid, setPaid] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
+  const [confirming, setConfirming] = useState(
+    () => new URLSearchParams(window.location.search).get("paid_pending") === "1"
+  );
 
   const showToast = (msg, type="ok") => {
     setToastMsg({ msg, type });
@@ -1166,6 +1169,34 @@ function PublicPayPage({ invoiceId }) {
     })();
   }, [invoiceId]);
 
+  // ── Retour de paiement Mobile Money : le webhook FedaPay met à jour la
+  // facture en arrière-plan, ce qui peut prendre quelques secondes. Sans ce
+  // polling, le client revenait sur cette page sans aucun retour visuel et
+  // voyait toujours "en attente" même après avoir réellement payé.
+  useEffect(() => {
+    if (!confirming || !invoiceId) return;
+    let attempts = 0;
+    const timer = setInterval(async () => {
+      attempts++;
+      try {
+        const s = await getPublicSupa();
+        const r = await s.from("invoices").select("status,amt_paid,total").eq("id", invoiceId).maybeSingle();
+        if (r.data) {
+          setInv(prev => prev ? { ...prev, status: r.data.status, amtPaid: parseFloat(r.data.amt_paid) || 0 } : prev);
+          if (r.data.status === "paid") {
+            setConfirming(false);
+            clearInterval(timer);
+          }
+        }
+      } catch (_) {}
+      if (attempts >= 8) {
+        setConfirming(false);
+        clearInterval(timer);
+      }
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [confirming, invoiceId]);
+
   // Formateur dynamique — utilise la devise de la facture (fallback XOF)
   const fmtf = (n) => {
     const cur = inv?.currency || "XOF";
@@ -1195,8 +1226,7 @@ function PublicPayPage({ invoiceId }) {
           amount: inv.total - inv.amtPaid,
           email: "client@vierafrik.com",
           description: "Paiement facture " + inv.num,
-          custom_id: "invoice_" + inv.id.slice(0, 8), // identifiant interne — pas "plan"
-          uid: inv.id,
+          invoice_id: inv.id,
           phone: phone,
         }),
       });
@@ -1264,79 +1294,17 @@ function PublicPayPage({ invoiceId }) {
         {/* Error */}
         {error && (
           <div style={{ textAlign:"center", padding:"32px 16px" }}>
-            {error === "RLS_BLOCKED" ? (
-              <>
-                <div style={{ fontSize:44, marginBottom:12 }}>🔒</div>
-                <div style={{ color:"#ff2255", fontWeight:800, fontSize:16, marginBottom:8 }}>
-                  Accès bloqué par Supabase RLS
-                </div>
-                <div style={{ color:"#80a8c8", fontSize:13, marginBottom:16, lineHeight:1.6 }}>
-                  La facture existe mais Supabase bloque la lecture publique.<br/>
-                  Appliquez ce correctif SQL dans votre Dashboard Supabase.
-                </div>
-                {/* ── FIX SQL COMPLET ── */}
-                <div style={{ background:"rgba(255,90,24,0.07)", border:"1px solid rgba(255,90,24,0.3)", borderRadius:14, padding:"16px 14px", textAlign:"left", marginBottom:16 }}>
-                  <div style={{ fontWeight:800, fontSize:12, color:"#ff9060", marginBottom:10 }}>
-                    🔧 Fix 1 — Policy SELECT publique (obligatoire)
-                  </div>
-                  <div style={{ background:"rgba(0,0,0,0.4)", borderRadius:8, padding:"10px 12px", fontFamily:"monospace", fontSize:11, color:"#a0d4b4", lineHeight:1.8, overflowX:"auto", marginBottom:12 }}>
-                    <div style={{ color:"#4a7090", marginBottom:4 }}>-- Supabase → SQL Editor → New query</div>
-                    <div>{"CREATE POLICY \"public_read_invoices\""}</div>
-                    <div>{"ON invoices FOR SELECT"}</div>
-                    <div>{"TO anon"}</div>
-                    <div>{"USING (true);"}</div>
-                  </div>
-                  <div style={{ fontWeight:800, fontSize:12, color:"#ff9060", marginBottom:10 }}>
-                    🔧 Fix 2 — Fonction RPC publique (recommandé)
-                  </div>
-                  <div style={{ background:"rgba(0,0,0,0.4)", borderRadius:8, padding:"10px 12px", fontFamily:"monospace", fontSize:11, color:"#a0d4b4", lineHeight:1.8, overflowX:"auto" }}>
-                    <div style={{ color:"#4a7090", marginBottom:4 }}>-- Fonction get_public_invoice</div>
-                    <div>{"CREATE OR REPLACE FUNCTION"}</div>
-                    <div>{"get_public_invoice(invoice_id text)"}</div>
-                    <div>{"RETURNS SETOF invoices"}</div>
-                    <div>{"LANGUAGE sql SECURITY DEFINER AS $$"}</div>
-                    <div>{"  SELECT * FROM invoices"}</div>
-                    <div>{"  WHERE id = invoice_id"}</div>
-                    <div>{"  OR number = invoice_id;"}</div>
-                    <div>{"$$;"}</div>
-                    <div>{"GRANT EXECUTE ON FUNCTION"}</div>
-                    <div>{"get_public_invoice TO anon;"}</div>
-                  </div>
-                </div>
-                <div style={{ background:"rgba(0,212,120,0.06)", border:"1px solid rgba(0,212,120,0.2)", borderRadius:10, padding:"10px 14px", fontSize:11, color:"#80a8c8", marginBottom:16, textAlign:"left", lineHeight:1.7 }}>
-                  <strong style={{ color:"#00d478" }}>Navigation Supabase :</strong><br/>
-                  Dashboard → SQL Editor → New query → Coller le SQL → Run
-                </div>
-                <div style={{ display:"flex", gap:10, justifyContent:"center", flexWrap:"wrap" }}>
-                  <button onClick={() => window.location.reload()} style={{ background:"rgba(0,212,120,0.12)", border:"1px solid rgba(0,212,120,0.3)", color:"#00d478", borderRadius:8, padding:"9px 18px", cursor:"pointer", fontSize:12, fontWeight:700 }}>
-                    🔄 Réessayer
-                  </button>
-                  <button onClick={() => window.open("https://supabase.com/dashboard", "_blank")} style={{ background:"rgba(255,90,24,0.1)", border:"1px solid rgba(255,90,24,0.3)", color:"#ff9060", borderRadius:8, padding:"9px 18px", cursor:"pointer", fontSize:12, fontWeight:700 }}>
-                    🔧 Ouvrir Supabase
-                  </button>
-                </div>
-                <div style={{ marginTop:12, fontSize:10, color:"#4a7090", fontFamily:"monospace" }}>
-                  Invoice ID : {invoiceId}
-                </div>
-              </>
-            ) : error === "NOT_FOUND" ? (
+            {error === "RLS_BLOCKED" || error === "NOT_FOUND" ? (
               <>
                 <div style={{ fontSize:48, marginBottom:12 }}>😕</div>
                 <div style={{ color:"#ff2255", fontWeight:700, fontSize:16, marginBottom:8 }}>Facture introuvable</div>
                 <div style={{ color:"#80a8c8", fontSize:13, marginBottom:16, lineHeight:1.6 }}>
-                  Cette facture n'existe pas ou n'est pas encore disponible.<br/>
-                  Si vous venez de la créer, attendez quelques secondes et réessayez.
+                  Ce lien de paiement n'est plus valide ou la facture n'est pas encore disponible.<br/>
+                  Contactez directement l'entreprise qui vous a envoyé ce lien.
                 </div>
-                <button onClick={() => window.location.reload()} style={{ background:"rgba(0,212,120,0.12)", border:"1px solid rgba(0,212,120,0.3)", color:"#00d478", borderRadius:8, padding:"8px 18px", cursor:"pointer", fontSize:12, fontWeight:700, marginBottom:8, display:"block", width:"100%" }}>
+                <button onClick={() => window.location.reload()} style={{ background:"rgba(0,212,120,0.12)", border:"1px solid rgba(0,212,120,0.3)", color:"#00d478", borderRadius:8, padding:"9px 18px", cursor:"pointer", fontSize:12, fontWeight:700 }}>
                   🔄 Réessayer
                 </button>
-                <div style={{ marginTop:8, fontSize:10, color:"#4a7090", fontFamily:"monospace", wordBreak:"break-all" }}>
-                  ID : {invoiceId}
-                </div>
-                <div style={{ marginTop:6, fontSize:10, color:"#4a7090", lineHeight:1.5 }}>
-                  💡 Si l'erreur persiste, vérifiez dans Supabase Dashboard que la policy RLS permet la lecture publique :<br/>
-                  <code style={{ background:"rgba(0,0,0,0.3)", padding:"2px 6px", borderRadius:4 }}>CREATE POLICY "public_read_invoices" ON invoices FOR SELECT TO anon USING (true);</code>
-                </div>
               </>
             ) : (
               <>
@@ -1422,6 +1390,14 @@ function PublicPayPage({ invoiceId }) {
                 <div style={{ fontSize:48, marginBottom:12 }}>✅</div>
                 <div style={{ fontWeight:900, fontSize:18, color:"#00d478", marginBottom:6 }}>Facture payée !</div>
                 <div style={{ fontSize:13, color:"#4a7090" }}>Merci pour votre règlement.</div>
+              </div>
+            ) : confirming ? (
+              <div style={{ textAlign:"center", padding:"30px 16px", background:"rgba(240,176,32,0.08)", borderRadius:16, border:"1px solid rgba(240,176,32,0.2)" }}>
+                <div style={{ fontSize:40, marginBottom:12 }}>⏳</div>
+                <div style={{ fontWeight:900, fontSize:16, color:"#f0b020", marginBottom:6 }}>Confirmation du paiement en cours…</div>
+                <div style={{ fontSize:13, color:"#4a7090", lineHeight:1.6 }}>
+                  Si vous venez de payer, cette page se met à jour automatiquement dès que le paiement est confirmé (quelques secondes).
+                </div>
               </div>
             ) : (
               <div style={{ background:"rgba(255,255,255,0.04)", border:"1px solid rgba(0,212,120,0.12)", borderRadius:16, padding:20 }}>
@@ -2533,15 +2509,21 @@ function ActivityNotifWidget(){
 //  N'affecte AUCUNE donnée existante — tests en lecture seule
 //  + test d'insertion sur une table de test dédiée
 // ════════════════════════════════════════════════════════════
+// Doit rester identique à ADMIN_EMAILS dans Dashboard — un panneau de
+// diagnostic technique ne doit jamais être visible par un autre compte.
+const DIAG_ADMIN_EMAILS = ["priscaakoua00@gmail.com", "contactvierafrik@gmail.com"];
+
 function SupaDiagPanel({ uid, userEmail }) {
-  // ⚠️ VISIBLE UNIQUEMENT POUR L'ADMIN
-  const ADMIN_EMAIL = "priscaakoua@gmail.com";
-  if (!userEmail || userEmail !== ADMIN_EMAIL) return null;
+  // ⚠️ VISIBLE UNIQUEMENT POUR L'ADMIN — tous les hooks doivent être
+  // déclarés avant tout retour conditionnel (règle des Hooks React).
   const [open,    setOpen]    = useState(false);
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState([]);
   const [newKey,  setNewKey]  = useState("");
   const [saving,  setSaving]  = useState(false);
+
+  const isAllowed = !!userEmail && DIAG_ADMIN_EMAILS.includes(userEmail.toLowerCase().trim());
+  if (!isAllowed) return null;
 
   // Lire la clé courante depuis le module (pour l'afficher tronquée)
   const currentKey = SUPA_KEY;
@@ -2789,32 +2771,17 @@ function SupaDiagPanel({ uid, userEmail }) {
             </div>
           )}
 
-          {/* ── BLOC FIX RLS QR / Paiement public ── */}
-          <div style={{background:"rgba(255,90,24,0.06)",border:"1px solid rgba(255,90,24,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:12}}>
-            <div style={{fontWeight:800,fontSize:11,color:"#ff9060",marginBottom:8}}>
-              🔒 Fix RLS — Lecture publique des factures (QR / Paiement)
+          {/* ── Lecture publique des factures (QR / Paiement) ── */}
+          <div style={{background:"rgba(0,191,204,0.06)",border:"1px solid rgba(0,191,204,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:12}}>
+            <div style={{fontWeight:800,fontSize:11,color:T.teal,marginBottom:8}}>
+              ℹ️ Lecture publique des factures (QR / Paiement)
             </div>
-            <div style={{fontSize:10,color:T.sub2,marginBottom:8,lineHeight:1.6}}>
-              Si le QR code ou le lien de facture affiche "Facture introuvable", copiez ce SQL dans Supabase → SQL Editor → Run :
+            <div style={{fontSize:10,color:T.sub2,lineHeight:1.6}}>
+              Si un lien de paiement affiche "Facture introuvable", ce n'est plus un problème de policy RLS à ouvrir manuellement :
+              <code style={{background:"#010c18",padding:"2px 6px",borderRadius:4,margin:"0 2px"}}>/api/invoice.js</code>
+              lit déjà la facture côté serveur avec la clé service_role, sans exposer la table <code style={{background:"#010c18",padding:"2px 6px",borderRadius:4}}>invoices</code> publiquement.
+              Une policy <code style={{background:"#010c18",padding:"2px 6px",borderRadius:4}}>USING (true)</code> ne doit jamais être ajoutée — elle rendrait les factures de tous les comptes lisibles par n'importe qui, sans authentification.
             </div>
-            <div style={{background:"#010c18",border:"1px solid rgba(0,210,120,0.15)",borderRadius:8,padding:"10px 12px",fontFamily:"monospace",fontSize:9,color:"#00d478",lineHeight:1.8,marginBottom:8,overflowX:"auto",whiteSpace:"pre"}}{...{}}>
-{`-- Autoriser la lecture publique des factures (pour QR/paiement)
-CREATE POLICY "public_read_invoices"
-ON invoices FOR SELECT
-TO anon
-USING (true);
-
--- Si la policy existe déjà, supprimer d'abord :
--- DROP POLICY IF EXISTS "public_read_invoices" ON invoices;`}
-            </div>
-            <button
-              onClick={() => {
-                const sql = `-- Autoriser la lecture publique des factures (pour QR/paiement)\nCREATE POLICY "public_read_invoices"\nON invoices FOR SELECT\nTO anon\nUSING (true);`;
-                navigator.clipboard?.writeText(sql).then(() => alert("✅ SQL copié ! Collez-le dans Supabase → SQL Editor → Run")).catch(() => alert("Copiez manuellement le SQL ci-dessus"));
-              }}
-              style={{width:"100%",padding:"8px",borderRadius:8,border:"none",background:"rgba(255,90,24,0.2)",color:"#ff9060",fontFamily:"inherit",fontWeight:700,fontSize:10,cursor:"pointer"}}>
-              📋 Copier le SQL
-            </button>
           </div>
 
           {/* Saisie d'une nouvelle clé */}
@@ -2897,6 +2864,20 @@ function Dashboard({ses,logout,updSes}){
   const [showUpgradeWall, setShowUpgradeWall] = useState(false);
   const [showAvisPopup,setShowAvisPopup]=useState(false);
   const [showWelcomeVideo,setShowWelcomeVideo]=useState(false);
+
+  // ── Impression / PDF en place — remplace l'ancien window.open("","_blank")
+  //  qui « envoyait sur une autre page ». Le document est injecté dans la
+  //  page courante puis imprimé via window.print(), scoping CSS ci-dessous. ──
+  const [printHTML,setPrintHTML]=useState(null);
+  const doPrint=(html)=>{
+    setPrintHTML(html);
+    requestAnimationFrame(()=>{
+      setTimeout(()=>{
+        window.print();
+        setPrintHTML(null);
+      },60);
+    });
+  };
 
 
   // ══════════════════════════════════════════════════════
@@ -3590,11 +3571,17 @@ function Dashboard({ses,logout,updSes}){
       ca:parseFloat(snap.ca)||0,
     };
     if(snap._edit){
-      // MODIFICATION — updater fonctionnel, jamais stale
+      // MODIFICATION — snapshot pour rollback si l'écriture Supabase échoue
+      const prevCli=clis.find(x=>x.id===c.id);
       setClis(prev=>prev.map(x=>x.id===c.id?c:x));
-      toast("✅ Client modifié !");
       setMdl(null);setFm({});
-      await supaUpdate("clients",{name:c.name,phone:c.phone,email:c.email,country:c.pays,city:c.ville,category:c.cat,status:c.status,revenue:c.ca,user_id:uid},c.id);
+      const ok=await supaUpdate("clients",{name:c.name,phone:c.phone,email:c.email,country:c.pays,city:c.ville,category:c.cat,status:c.status,revenue:c.ca,user_id:uid},c.id);
+      if(!ok){
+        if(prevCli)setClis(prev=>prev.map(x=>x.id===c.id?prevCli:x));
+        toast("❌ Modification non sauvegardée — vérifiez votre connexion et réessayez.","err");
+        return;
+      }
+      toast("✅ Client modifié !");
     } else {
       // NOUVEAU CLIENT
       if(!canAdd("cli")){toast(`🔒 Plan Free — max ${plan.maxCli} clients. Passez à Pro ! 🚀`,"warn");return;}
@@ -3641,12 +3628,17 @@ function Dashboard({ses,logout,updSes}){
       amtPaid:snap._edit?(snap.amtPaid||0):0,
     };
     if(snap._edit){
-      // MODIFICATION — updater fonctionnel
+      // MODIFICATION — snapshot pour rollback si l'écriture Supabase échoue
+      const prevInv=invs.find(x=>x.id===inv.id);
       setInvs(prev=>prev.map(x=>x.id===inv.id?inv:x));
-      toast("✅ Facture modifiée !");
       setMdl(null);setFm({});
       const ok=await supaUpdate("invoices",{client_name:inv.clientName,phone:inv.phone,total:inv.total,subtotal:inv.sub,tax:inv.tax,currency:inv.currency,status:inv.status,issued:inv.issued,due:inv.due||null,items:JSON.stringify(inv.items),notes:inv.notes,user_id:uid},inv.id);
-      if(!ok)toast("⚠️ Modification non sauvegardée en base — réessayez.","warn");
+      if(!ok){
+        if(prevInv)setInvs(prev=>prev.map(x=>x.id===inv.id?prevInv:x));
+        toast("❌ Modification non sauvegardée — vérifiez votre connexion et réessayez.","err");
+        return;
+      }
+      toast("✅ Facture modifiée !");
       return;
     }
     // NOUVELLE FACTURE
@@ -3687,7 +3679,6 @@ function Dashboard({ses,logout,updSes}){
     if(!isValidUUID){
       console.warn("⚠️ [genPDF] ID non-UUID détecté:", inv.id, "— Le QR code risque de ne pas fonctionner.");
     }
-    const w=window.open("","_blank");if(!w)return;
     const sC2={paid:"#d4fde8",partial:"#d0f0ff",pending:"#fff8cc",overdue:"#ffe0e6"};
     const sT2={paid:"#0a6e3d",partial:"#006677",pending:"#7a5c00",overdue:"#8b0020"};
     const amtPaid=inv.amtPaid||0;
@@ -3695,18 +3686,19 @@ function Dashboard({ses,logout,updSes}){
     const stKey=inv.status||"pending";
     const cur=inv.currency||DEFAULT_CURRENCY;
     const fp=n=>fmtPrice(n,cur);
-    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${inv.num}</title>
-<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:sans-serif;padding:40px;max-width:740px;margin:0 auto;font-size:13px;color:#111}
-.hdr{display:flex;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #00d478}
-.brand{font-size:22px;font-weight:900}.brand b{color:#00d478}
-.badge{display:inline-block;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:800;background:${sC2[stKey]||sC2.pending};color:${sT2[stKey]||sT2.pending}}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:20px}
-.lbl{font-size:9px;text-transform:uppercase;color:#888;margin-bottom:2px}.val{font-weight:700;font-size:13px}
-table{width:100%;border-collapse:collapse;margin-bottom:16px}th{background:#f2fdf7;padding:8px 11px;text-align:left;font-size:9px;text-transform:uppercase;color:#555;border-bottom:2px solid #00d478}td{padding:8px 11px;border-bottom:1px solid #eee}
-.tot{text-align:right;margin-bottom:14px}.grand{font-weight:900;font-size:19px;color:#00a85e}
-.pay{background:#f2fdf7;border-left:4px solid #00d478;padding:12px 14px;border-radius:0 9px 9px 0}
-.foot{margin-top:24px;padding-top:14px;border-top:1px solid #eee;text-align:center;color:#aaa;font-size:10px}
-@media print{body{padding:22px}}</style></head><body>
+    // Imprimé en place (voir doPrint) — plus de nouvel onglet/fenêtre.
+    doPrint(`
+<style>#print-area *{box-sizing:border-box}#print-area{font-family:sans-serif;padding:40px;max-width:740px;margin:0 auto;font-size:13px;color:#111;background:#fff}
+#print-area .hdr{display:flex;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #00d478}
+#print-area .brand{font-size:22px;font-weight:900}#print-area .brand b{color:#00d478}
+#print-area .badge{display:inline-block;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:800;background:${sC2[stKey]||sC2.pending};color:${sT2[stKey]||sT2.pending}}
+#print-area .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:20px}
+#print-area .lbl{font-size:9px;text-transform:uppercase;color:#888;margin-bottom:2px}#print-area .val{font-weight:700;font-size:13px}
+#print-area table{width:100%;border-collapse:collapse;margin-bottom:16px}#print-area th{background:#f2fdf7;padding:8px 11px;text-align:left;font-size:9px;text-transform:uppercase;color:#555;border-bottom:2px solid #00d478}#print-area td{padding:8px 11px;border-bottom:1px solid #eee}
+#print-area .tot{text-align:right;margin-bottom:14px}#print-area .grand{font-weight:900;font-size:19px;color:#00a85e}
+#print-area .pay{background:#f2fdf7;border-left:4px solid #00d478;padding:12px 14px;border-radius:0 9px 9px 0}
+#print-area .foot{margin-top:24px;padding-top:14px;border-top:1px solid #eee;text-align:center;color:#aaa;font-size:10px}
+@media print{#print-area{padding:22px}}</style>
 <div class="hdr"><div><div class="brand">🌍 Vier<b>Afrik</b></div><div style="color:#555;margin-top:4px">${ses.business||"Mon Entreprise"}</div><div style="color:#999;font-size:11px">${ses.email}</div></div>
 <div style="text-align:right"><div style="font-size:18px;font-weight:900">${inv.num}</div><br><span class="badge">${stKey==="paid"?"✅ Payée":stKey==="partial"?"🔵 Part. payée":stKey==="pending"?"⏳ En attente":"🔴 En retard"}</span>${inv.payRef?`<div style="font-size:10px;color:#888;margin-top:4px">Réf: ${inv.payRef}</div>`:""}</div></div>
 <div class="grid"><div><div class="lbl">Facturé à</div><div class="val">${inv.clientName}</div><div style="color:#555;margin-top:3px;font-size:12px">${inv.phone||""}</div></div>
@@ -3723,9 +3715,8 @@ ${(inv.items||[]).map(it=>`<tr><td>${it.name}</td><td>${it.qty||1}</td><td>${fp(
 ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-size:12px;color:#555;margin-bottom:12px"><strong>Notes :</strong> ${inv.notes}</div>`:""}
 <div class="pay"><strong>💳 Paiement accepté :</strong><br><span style="font-size:12px;color:#555">Orange Money · MTN · Wave · CinetPay · Paystack</span></div>
 <div class="foot">VierAfrik · Gagne de l'argent en Afrique 🌍 · ${today()}</div>
-<div style="margin:16px 0;text-align:center;padding:14px;background:#f2fdf7;border-radius:12px;border:1px solid #00d47830"><div style="font-size:11px;font-weight:700;color:#555;margin-bottom:8px">📲 Scanner pour payer via Mobile Money</div><img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent((window.location.origin||"https://vierafrik.com")+"/?pay="+inv.id)}" style="width:120px;height:120px;border-radius:8px" /><div style="font-size:10px;color:#888;margin-top:6px">Wave · Orange Money · MTN · vierafrik.com</div></div>
-<script>window.onload=()=>window.print();</script></body></html>`);
-    w.document.close();toast("📄 Prêt ! Utilisez Ctrl+P sur PC, ou Partager → Imprimer sur mobile.");
+<div style="margin:16px 0;text-align:center;padding:14px;background:#f2fdf7;border-radius:12px;border:1px solid #00d47830"><div style="font-size:11px;font-weight:700;color:#555;margin-bottom:8px">📲 Scanner pour payer via Mobile Money</div><img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent((window.location.origin||"https://vierafrik.com")+"/?pay="+inv.id)}" style="width:120px;height:120px;border-radius:8px" /><div style="font-size:10px;color:#888;margin-top:6px">Wave · Orange Money · MTN · vierafrik.com</div></div>`);
+    toast("📄 Facture prête — impression en cours…");
   };
 
   // WhatsApp
@@ -3755,10 +3746,10 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           action:"initialize",
-          amount:inv.total,
+          amount:inv.total-(inv.amtPaid||0),
           email:ses.email,
           description:"Paiement facture "+inv.num,
-          custom_id:"invoice_"+inv.id.slice(0,8), // identifiant interne — n'utilise pas "plan" (champ tarifaire FedaPay)
+          invoice_id:inv.id,
           uid:ses.id,
           phone:phone,
         })
@@ -3795,10 +3786,16 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     const newPayStatus=reste<=0?"paid":newPaid>0?"partial":"unpaid";
     const updated={...inv,amtPaid:newPaid,status:newStatus,payStatus:newPayStatus};
     setInvs(prev=>prev.map(x=>x.id===inv.id?updated:x));
-    await supaUpdate("invoices",{amt_paid:newPaid,status:newStatus},inv.id);
+    setMdl(null);setFm({});
+    const ok=await supaUpdate("invoices",{amt_paid:newPaid,status:newStatus},inv.id);
+    if(!ok){
+      // Rollback — l'encaissement affiché ne doit jamais mentir sur ce qui est réellement enregistré
+      setInvs(prev=>prev.map(x=>x.id===inv.id?inv:x));
+      toast("❌ Paiement non enregistré en base — vérifiez votre connexion et réessayez.","err");
+      return;
+    }
     if(reste<=0)toast(`✅ ${inv.num} — entièrement payée !`,"ok",T.gr);
     else toast(`💰 Encaissé ${fmtPrice(amt, inv.currency||DEFAULT_CURRENCY)} — Reste : ${fmtPrice(reste, inv.currency||DEFAULT_CURRENCY)}`,"ok",T.teal);
-    setMdl(null);setFm({});
   };
 
   // Coach IA — moteur local multilingue FR/EN
@@ -4314,7 +4311,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
               </div>
               <div style={{display:"flex",gap:3}}>
                 <button onClick={()=>{setFm({...inv,_edit:true});setMdl("inv");}} style={{flex:1,background:"rgba(26,120,255,.07)",border:"none",color:T.blue,borderRadius:7,padding:"4px",cursor:"pointer",fontSize:10,fontWeight:700}}>✏️ Modifier</button>
-                <button onClick={()=>{setConfirm({title:"🗑 Supprimer la facture",msg:`Supprimer la facture ${inv.num} (${fmtPrice(inv.total, inv.currency)}) ?`,confirmLabel:"Supprimer",danger:true,onConfirm:async()=>{const n=invs.filter(x=>x.id!==inv.id);setInvs(n);await supaDelete("invoices",inv.id);toast("🗑 Facture supprimée","warn");setConfirm(null);}});}} style={{background:"rgba(255,34,85,.08)",border:"none",color:T.red,borderRadius:7,padding:"4px 9px",cursor:"pointer",fontSize:10}}>🗑</button>
+                <button onClick={()=>{setConfirm({title:"🗑 Supprimer la facture",msg:`Supprimer la facture ${inv.num} (${fmtPrice(inv.total, inv.currency)}) ?`,confirmLabel:"Supprimer",danger:true,onConfirm:async()=>{setInvs(prev=>prev.filter(x=>x.id!==inv.id));setConfirm(null);const ok=await supaDelete("invoices",inv.id);if(!ok){setInvs(prev=>[inv,...prev]);toast("❌ Suppression échouée — réessayez.","err");return;}toast("🗑 Facture supprimée","warn");}});}} style={{background:"rgba(255,34,85,.08)",border:"none",color:T.red,borderRadius:7,padding:"4px 9px",cursor:"pointer",fontSize:10}}>🗑</button>
               </div>
             </div>
             );
@@ -4351,7 +4348,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             <div style={{display:"flex",gap:4}}>
               <button onClick={()=>{setFm({...cl,_edit:true});setMdl("cli");}} style={{flex:1,background:"rgba(26,120,255,.1)",border:"none",color:T.blue,borderRadius:7,padding:"5px",cursor:"pointer",fontSize:10,fontWeight:700}}>✏️</button>
               <button onClick={()=>{const ph=cleanP(cl.phone);const m=encodeURIComponent("Bonjour "+cl.name.split(" ")[0]+"\n"+ses.business+" vous contacte.");window.open(`https://wa.me/${ph}?text=${m}`,"_blank");}} style={{flex:1,background:"rgba(37,211,102,.1)",border:"none",color:"#25D366",borderRadius:7,padding:"5px",cursor:"pointer",fontSize:10,fontWeight:700}}>📱</button>
-              <button onClick={()=>{setConfirm({title:"🗑 Supprimer le client",msg:`Supprimer ${cl.name} de votre liste clients ?`,confirmLabel:"Supprimer",danger:true,onConfirm:async()=>{const n=clis.filter(x=>x.id!==cl.id);setClis(n);await supaDelete("clients",cl.id);toast("🗑 "+cl.name+" supprimé","warn");setConfirm(null);}});}} style={{background:"rgba(255,34,85,.1)",border:"none",color:T.red,borderRadius:7,padding:"5px 9px",cursor:"pointer",fontSize:10}}>🗑</button>
+              <button onClick={()=>{setConfirm({title:"🗑 Supprimer le client",msg:`Supprimer ${cl.name} de votre liste clients ?`,confirmLabel:"Supprimer",danger:true,onConfirm:async()=>{setClis(prev=>prev.filter(x=>x.id!==cl.id));setConfirm(null);const ok=await supaDelete("clients",cl.id);if(!ok){setClis(prev=>[cl,...prev]);toast("❌ Suppression échouée — réessayez.","err");return;}toast("🗑 "+cl.name+" supprimé","warn");}});}} style={{background:"rgba(255,34,85,.1)",border:"none",color:T.red,borderRadius:7,padding:"5px 9px",cursor:"pointer",fontSize:10}}>🗑</button>
             </div>
           </div>
         ))}
@@ -4800,37 +4797,32 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
 
             // ── Impression HTML dans une nouvelle fenêtre ──
             const handlePrint = () => {
-              const html = `<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8"/>
-<title>Reçu de salaire — ${lastReceipt.name}</title>
+              // Imprimé en place (voir doPrint) — plus de nouvel onglet/fenêtre.
+              const html = `
 <style>
-  * { box-sizing:border-box; margin:0; padding:0; }
-  body { font-family: 'Helvetica Neue', Arial, sans-serif; background:#fff; color:#111; padding:40px; max-width:600px; margin:0 auto; }
-  .header { text-align:center; border-bottom:2px solid #00d478; padding-bottom:20px; margin-bottom:24px; }
-  .logo { font-size:26px; font-weight:900; color:#00d478; letter-spacing:-.03em; }
-  .logo span { color:#111; }
-  .subtitle { font-size:11px; color:#666; margin-top:4px; text-transform:uppercase; letter-spacing:.08em; }
-  .receipt-id { display:inline-block; background:#f5f5f5; border:1px solid #ddd; border-radius:20px; padding:4px 14px; font-size:11px; font-weight:700; color:#555; margin-top:8px; }
-  .section-title { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.1em; color:#999; margin-bottom:10px; margin-top:20px; }
-  .card { border:1px solid #e8e8e8; border-radius:12px; padding:18px 20px; margin-bottom:16px; }
-  .row { display:flex; justify-content:space-between; align-items:center; padding:9px 0; border-bottom:1px solid #f0f0f0; }
-  .row:last-child { border-bottom:none; }
-  .row-label { font-size:12px; color:#777; }
-  .row-val { font-size:13px; font-weight:700; color:#111; }
-  .amount-big { font-size:28px; font-weight:900; color:#00d478; text-align:center; padding:16px; background:#f0fff8; border-radius:12px; border:2px solid #00d478; margin:16px 0; letter-spacing:-.02em; }
-  .badge-paid { display:inline-block; background:#e6fff4; border:1px solid #00d478; color:#00a85a; border-radius:20px; padding:4px 14px; font-size:12px; font-weight:800; }
-  .footer { text-align:center; margin-top:28px; padding-top:16px; border-top:1px solid #eee; font-size:10px; color:#aaa; line-height:1.8; }
-  .signature-box { border:1px dashed #ccc; border-radius:8px; padding:24px; margin-top:16px; text-align:center; }
-  .signature-label { font-size:10px; color:#aaa; margin-top:8px; }
+  #print-area * { box-sizing:border-box; }
+  #print-area { font-family: 'Helvetica Neue', Arial, sans-serif; background:#fff; color:#111; padding:40px; max-width:600px; margin:0 auto; }
+  #print-area .header { text-align:center; border-bottom:2px solid #00d478; padding-bottom:20px; margin-bottom:24px; }
+  #print-area .logo { font-size:26px; font-weight:900; color:#00d478; letter-spacing:-.03em; }
+  #print-area .logo span { color:#111; }
+  #print-area .subtitle { font-size:11px; color:#666; margin-top:4px; text-transform:uppercase; letter-spacing:.08em; }
+  #print-area .receipt-id { display:inline-block; background:#f5f5f5; border:1px solid #ddd; border-radius:20px; padding:4px 14px; font-size:11px; font-weight:700; color:#555; margin-top:8px; }
+  #print-area .section-title { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.1em; color:#999; margin-bottom:10px; margin-top:20px; }
+  #print-area .card { border:1px solid #e8e8e8; border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+  #print-area .row { display:flex; justify-content:space-between; align-items:center; padding:9px 0; border-bottom:1px solid #f0f0f0; }
+  #print-area .row:last-child { border-bottom:none; }
+  #print-area .row-label { font-size:12px; color:#777; }
+  #print-area .row-val { font-size:13px; font-weight:700; color:#111; }
+  #print-area .amount-big { font-size:28px; font-weight:900; color:#00d478; text-align:center; padding:16px; background:#f0fff8; border-radius:12px; border:2px solid #00d478; margin:16px 0; letter-spacing:-.02em; }
+  #print-area .badge-paid { display:inline-block; background:#e6fff4; border:1px solid #00d478; color:#00a85a; border-radius:20px; padding:4px 14px; font-size:12px; font-weight:800; }
+  #print-area .footer { text-align:center; margin-top:28px; padding-top:16px; border-top:1px solid #eee; font-size:10px; color:#aaa; line-height:1.8; }
+  #print-area .signature-box { border:1px dashed #ccc; border-radius:8px; padding:24px; margin-top:16px; text-align:center; }
+  #print-area .signature-label { font-size:10px; color:#aaa; margin-top:8px; }
   @media print {
-    body { padding:24px; }
-    .no-print { display:none !important; }
+    #print-area { padding:24px; }
+    #print-area .no-print { display:none !important; }
   }
 </style>
-</head>
-<body>
   <div class="header">
     <div class="logo">Vier<span>Afrik</span></div>
     <div class="subtitle">Reçu de paiement de salaire</div>
@@ -4877,14 +4869,9 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     Document généré par VierAfrik · vierafrik.com<br/>
     ${receiptNum} · ${lastReceipt.date}<br/>
     Ce document constitue une preuve de paiement de salaire.
-  </div>
-
-  <script>window.onload=()=>{window.print();}</script>
-</body>
-</html>`;
-              const w = window.open("", "_blank");
-              if (w) { w.document.write(html); w.document.close(); }
-              else toast("⚠️ Autorisez les popups pour imprimer", "warn");
+  </div>`;
+              doPrint(html);
+              toast("🧾 Reçu prêt — impression en cours…");
             };
 
             // ── Partage WhatsApp ──
@@ -7230,7 +7217,14 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
           .pg-grid-kpi{grid-template-columns:1fr 1fr!important}
           .hide-mobile{display:none!important}
         }
+        #print-area{display:none}
+        @media print{
+          body *{visibility:hidden}
+          #print-area,#print-area *{visibility:visible}
+          #print-area{display:block!important;position:absolute;left:0;top:0;width:100%;margin:0;padding:0}
+        }
       `}</style>
+      {printHTML && <div id="print-area" dangerouslySetInnerHTML={{__html:printHTML}}/>}
       {loading&&<div style={{position:"fixed",inset:0,background:T.bg,zIndex:999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:20}}>
         <div style={{width:72,height:72,borderRadius:20,background:`linear-gradient(135deg,${accent},${T.teal})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,boxShadow:`0 0 60px ${accent}44`,animation:"pop .4s cubic-bezier(.34,1.56,.64,1)"}}>🌍</div>
         <div style={{width:40,height:40,border:`3px solid ${T.c3}`,borderTop:`3px solid ${accent}`,borderRadius:"50%",animation:"spin .75s linear infinite"}}/>

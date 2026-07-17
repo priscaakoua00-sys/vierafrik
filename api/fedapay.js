@@ -14,15 +14,17 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const SECRET_KEY = process.env.FEDAPAY_SECRET_KEY;
-  const APP_URL    = process.env.VITE_APP_URL || "https://vierafrik.com";
+  const SECRET_KEY   = process.env.FEDAPAY_SECRET_KEY;
+  const APP_URL      = process.env.VITE_APP_URL || "https://vierafrik.com";
+  const SUPABASE_URL = process.env.SUPABASE_URL || "https://oexzpfygeunehkcpoukv.supabase.co";
+  const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
   if (!SECRET_KEY) {
     console.error("❌ FEDAPAY_SECRET_KEY manquante");
     return res.status(500).json({ error: "Configuration serveur manquante" });
   }
 
-  const { action, amount, email, description, plan, uid, phone, reference } = req.body || {};
+  const { action, amount, email, description, plan, uid, phone, reference, invoice_id } = req.body || {};
   const FEDAPAY_BASE = "https://api.fedapay.com/v1";
   const headers = {
     "Authorization": `Bearer ${SECRET_KEY}`,
@@ -38,13 +40,44 @@ export default async function handler(req, res) {
     if (!email)
       return res.status(400).json({ error: "Email requis" });
 
-    const callbackUrl = `${APP_URL}/?pay_success=1&plan=${encodeURIComponent(plan||"")}&uid=${encodeURIComponent(uid||"")}`;
+    // ── Paiement de facture : le montant n'est jamais pris tel quel côté
+    // client — on le revérifie contre le vrai reste-à-payer en base avant
+    // d'ouvrir une session de paiement, pour empêcher un montant trafiqué
+    // depuis le navigateur de marquer une facture payée pour moins que dû.
+    if (invoice_id) {
+      if (!SUPABASE_KEY) {
+        console.error("❌ SUPABASE_SERVICE_KEY manquante — impossible de vérifier la facture");
+        return res.status(500).json({ error: "Configuration serveur incomplète" });
+      }
+      try {
+        const r = await fetch(
+          `${SUPABASE_URL}/rest/v1/invoices?id=eq.${encodeURIComponent(invoice_id)}&select=total,amt_paid,status`,
+          { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+        );
+        const rows = await r.json().catch(() => []);
+        const invRow = Array.isArray(rows) ? rows[0] : null;
+        if (!invRow) return res.status(404).json({ error: "Facture introuvable" });
+        if (invRow.status === "paid") return res.status(400).json({ error: "Cette facture est déjà payée" });
+        const due = Number(invRow.total || 0) - Number(invRow.amt_paid || 0);
+        if (Math.abs(Number(amount) - due) > 1) {
+          return res.status(400).json({ error: "Le montant ne correspond pas au reste à payer de la facture" });
+        }
+      } catch (e) {
+        console.error("❌ [FedaPay] Vérification facture échouée:", e.message);
+        return res.status(500).json({ error: "Impossible de vérifier la facture" });
+      }
+    }
+
+    const callbackUrl = invoice_id
+      ? `${APP_URL}/?pay=${encodeURIComponent(invoice_id)}&paid_pending=1`
+      : `${APP_URL}/?pay_success=1&plan=${encodeURIComponent(plan||"")}&uid=${encodeURIComponent(uid||"")}`;
 
     // FIX — sans ces métadonnées, le webhook FedaPay ne peut identifier ni
-    // l'utilisateur (uid) ni le plan acheté, et n'active donc jamais l'abonnement.
+    // la facture (invoice_id), ni l'utilisateur (uid) ni le plan acheté, et
+    // n'active donc jamais le paiement/abonnement côté serveur.
     // On les envoie sous les deux noms (custom_metadata / metadata) car selon
     // les versions de l'API FedaPay, l'un ou l'autre est repris tel quel dans le webhook.
-    const metadata = { uid: uid || "", plan: plan || "" };
+    const metadata = { uid: uid || "", plan: plan || "", invoice_id: invoice_id || "" };
 
     const body = {
       description:  description || "Paiement VierAfrik",

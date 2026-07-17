@@ -108,27 +108,48 @@ export default async function handler(req, res) {
 
     // ── CAS 1 : Paiement d'une facture ──
     if (invoice_id) {
+      // Récupérer l'état actuel de la facture pour cumuler correctement
+      // (paiement partiel) et éviter un double-comptage si FedaPay renvoie
+      // le même événement plusieurs fois (retries webhook).
+      const invRows = await supaRest(`/invoices?id=eq.${invoice_id}&select=total,amt_paid,status,client_name,number,user_id,pay_ref`).catch(() => []);
+      const invRow  = invRows?.[0];
+
+      if (!invRow) {
+        console.warn("[Webhook] Facture introuvable:", invoice_id);
+        return res.status(200).json({ received: true, action: "invoice_not_found" });
+      }
+      if (invRow.status === "paid" || String(invRow.pay_ref) === String(transactionId)) {
+        console.warn("[Webhook] Facture déjà traitée — ignoré (idempotence):", invoice_id);
+        return res.status(200).json({ received: true, action: "already_processed" });
+      }
+
+      const paidAmount = Number(transaction?.amount || 0);
+      const newAmtPaid = Number(invRow.amt_paid || 0) + paidAmount;
+      const newStatus  = newAmtPaid >= Number(invRow.total || 0) ? "paid" : "partial";
+
       await supaRest(
         `/invoices?id=eq.${invoice_id}`,
         "PATCH",
         {
-          status:   "paid",
-          amt_paid: transaction?.amount || 0,
+          status:   newStatus,
+          amt_paid: newAmtPaid,
           pay_ref:  String(transactionId),
         }
       );
-      actions.push(`invoice ${invoice_id} → paid`);
+      actions.push(`invoice ${invoice_id} → ${newStatus} (${newAmtPaid}/${invRow.total})`);
 
-      // Créer une transaction de vente correspondante
-      if (uid && transaction?.amount) {
-        // Récupérer info de la facture
-        const invData = await supaRest(`/invoices?id=eq.${invoice_id}&select=client_name,number`);
-        const inv = invData?.[0];
+      // Créer une transaction de vente correspondante — on utilise le
+      // user_id du marchand propriétaire de la facture (invRow.user_id),
+      // pas les métadonnées uid : un client public qui paie sa facture
+      // n'a pas de compte et n'envoie jamais de uid.
+      const ownerId = invRow.user_id || uid;
+      if (ownerId && paidAmount) {
+        const inv = invRow;
         await supaRest("/transactions", "POST", {
           id:       `fedapay_${transactionId}`,
-          user_id:  uid,
+          user_id:  ownerId,
           type:     "sale",
-          amount:   transaction.amount,
+          amount:   paidAmount,
           category: "Services",
           who:      inv?.client_name || "Paiement FedaPay",
           date:     new Date().toISOString().slice(0, 10),
