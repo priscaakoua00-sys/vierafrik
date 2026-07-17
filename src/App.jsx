@@ -7,6 +7,7 @@ import NetworkShell from "./components/network/NetworkShell.jsx";
 import CoachIA from "./components/coach/CoachIA.jsx";
 import { PLANS, INF, TEST_MODE, TRIAL_DAYS, TRIAL_PLAN, ROLE_LABELS } from "./data/pricing.js";
 import { downloadPdfFromHtml } from "./utils/pdfExport.js";
+import html2canvas from "html2canvas";
 
 // ══════════════════════════════════════════════════════
 // App v34 — Freemium découverte (base v31 intacte) :
@@ -6042,71 +6043,18 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
       setSaving(false);
     };
 
-    // Télécharger comme image PNG via canvas
+    // Télécharger comme image PNG — capture directe de l'aperçu réel (cardRef)
+    // avec html2canvas, pour que le fichier téléchargé corresponde TOUJOURS
+    // exactement à ce qui est affiché (style, couleurs, tous les champs
+    // remplis) au lieu de redessiner une version approximative à la main.
     const downloadCard = async () => {
       if (!cardRef.current) { toast("⚠️ Aperçu non disponible", "err"); return; }
       try {
         toast("⏳ Préparation du téléchargement...");
-        // Créer canvas avec le contenu de la carte
-        const el = cardRef.current;
-        const w = el.offsetWidth;
-        const h = el.offsetHeight;
-        const canvas = document.createElement("canvas");
-        canvas.width = w * 2;
-        canvas.height = h * 2;
-        const ctx = canvas.getContext("2d");
-        ctx.scale(2, 2);
-
-        // Fond
-        const grad = ctx.createLinearGradient(0, 0, w, h);
-        const style = STYLES[styleIdx];
-        ctx.fillStyle = "#0a1628";
-        // roundRect polyfill
-        if(ctx.roundRect){ctx.roundRect(0,0,w,h,20);}else{ctx.rect(0,0,w,h);}
-        ctx.fill();
-
-        // Logo initiales
-        const logoGrad = ctx.createLinearGradient(20, 20, 76, 76);
-        logoGrad.addColorStop(0, form.couleur);
-        logoGrad.addColorStop(1, form.couleur2);
-        ctx.fillStyle = logoGrad;
-        ctx.beginPath();
-        ctx.roundRect(20, 20, 56, 56, 14);
-        ctx.fill();
-        ctx.fillStyle = "#000";
-        ctx.font = "bold 22px Inter, Arial";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(initials, 48, 48);
-
-        // Textes
-        ctx.textAlign = "left";
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 18px Inter, Arial";
-        ctx.fillText(form.business || "Business", 88, 36);
-        ctx.fillStyle = form.couleur;
-        ctx.font = "600 12px Inter, Arial";
-        ctx.fillText(form.activite || "Business", 88, 55);
-
-        let y = 100;
-        ctx.fillStyle = "rgba(223,240,255,0.9)";
-        ctx.font = "13px Inter, Arial";
-        if (form.nom) { ctx.fillText("👤 " + form.nom, 20, y); y += 24; }
-        if (form.phone) { ctx.fillText("📱 " + form.phone, 20, y); y += 24; }
-        if (form.ville) { ctx.fillText("📍 " + form.ville, 20, y); y += 24; }
-
-        // Footer
-        ctx.fillStyle = form.couleur;
-        ctx.font = "bold 10px Inter, Arial";
-        ctx.fillText("vierafrik.com", 20, h - 16);
-        ctx.fillStyle = "rgba(74,112,144,0.8)";
-        ctx.textAlign = "right";
-        ctx.fillText("🌍 VierAfrik", w - 20, h - 16);
-
-        // Télécharger
+        const canvas = await html2canvas(cardRef.current, { scale: 3, useCORS: true });
+        const dataUrl = canvas.toDataURL("image/png");
         const link = document.createElement("a");
         link.download = `carte-visite-${(form.business || "vierafrik").toLowerCase().replace(/\s+/g,"-")}.png`;
-        const dataUrl = canvas.toDataURL("image/png");
         link.href = dataUrl;
         // iOS fallback - open image in new tab
         if(/iPad|iPhone|iPod/.test(navigator.userAgent)){
@@ -6117,13 +6065,13 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
           toast("✅ Carte téléchargée !");
         }
       } catch(e) {
-        // Fallback si canvas échoue
-        toast("📸 Fais une capture d'écran de l'aperçu pour sauvegarder ta carte !");
+        toast("❌ Erreur de téléchargement — réessaie.", "err");
       }
     };
 
     const shareWA = () => {
-      const txt = `📇 *${form.business}*\n👤 ${form.nom}\n📱 ${form.phone}${form.ville?"\n📍 "+form.ville:""}\n🌍 vierafrik.com`;
+      const lieu = [form.ville, form.pays && countryLabel(form.pays)].filter(Boolean).join(" · ");
+      const txt = `📇 *${form.business}*\n👤 ${form.nom}\n📱 ${form.phone}${form.whatsapp&&form.whatsapp!==form.phone?"\n💬 "+form.whatsapp:""}${lieu?"\n📍 "+lieu:""}\n🌍 vierafrik.com`;
       window.open("https://wa.me/?text=" + encodeURIComponent(txt), "_blank");
     };
 
@@ -6172,8 +6120,11 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             {form.phone && <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:"#dff0ff" }}>
               <span>📱</span> {form.phone}
             </div>}
-            {form.ville && <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:"#dff0ff" }}>
-              <span>📍</span> {form.ville}
+            {form.whatsapp && form.whatsapp!==form.phone && <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:"#dff0ff" }}>
+              <span>💬</span> {form.whatsapp}
+            </div>}
+            {(form.ville||form.pays) && <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:"#dff0ff" }}>
+              <span>📍</span> {[form.ville, form.pays && countryLabel(form.pays)].filter(Boolean).join(" · ")}
             </div>}
           </div>
 
@@ -6269,7 +6220,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             padding:"10px", borderRadius:10, border:"none",
             background:"#25D366", color:"#000", fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"inherit",
           }}>💬 WhatsApp</button>
-          <button onClick={()=>{ navigator.clipboard?.writeText(`${form.business}\n${form.nom}\n${form.phone}\n${form.ville}\nvierafrik.com`); toast("📋 Copié !"); }} style={{
+          <button onClick={()=>{ const lieu=[form.ville, form.pays && countryLabel(form.pays)].filter(Boolean).join(" · "); navigator.clipboard?.writeText([form.business,form.nom,form.phone,form.whatsapp&&form.whatsapp!==form.phone?"WhatsApp: "+form.whatsapp:"",lieu,"vierafrik.com"].filter(Boolean).join("\n")); toast("📋 Copié !"); }} style={{
             padding:"10px", borderRadius:10, border:`1px solid ${T.border}`,
             background:T.c2, color:T.text, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit",
           }}>📋 Copier texte</button>
@@ -6296,6 +6247,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
   const [forme, setForme]       = useState("rond");
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
+  const logoRef = useRef(null);
 
   const T = {
     c1:"#05090f", c2:"#08111d", c3:"#0d1828",
@@ -6427,8 +6379,30 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
     },
   ];
 
-  const handleShare = () => {
-    toast?.("💡 Pour partager votre logo : faites une capture d'écran de l'aperçu ci-dessus, puis envoyez sur WhatsApp ou Facebook !", "info");
+  // Télécharger le logo — capture directe de l'aperçu réel (logoRef) avec
+  // html2canvas, pour que le fichier téléchargé corresponde exactement à ce
+  // qui est affiché (forme, couleurs, nom) quel que soit le style choisi,
+  // au lieu de le redessiner à la main (ce qui perdait le nom et la forme
+  // exacte pour certains styles).
+  const downloadLogo = async () => {
+    if (!logoRef.current) { toast?.("⚠️ Aperçu non disponible", "err"); return; }
+    try {
+      toast?.("⏳ Préparation du logo...");
+      const canvas = await html2canvas(logoRef.current, { scale: 3, backgroundColor: null, useCORS: true });
+      const dataUrl = canvas.toDataURL("image/png");
+      const link = document.createElement("a");
+      link.download = `logo-${(nom||"business").toLowerCase().replace(/\s+/g,"-")}.png`;
+      link.href = dataUrl;
+      if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+        window.open(dataUrl, "_blank");
+        toast?.("✅ Appuie longuement sur l'image → Enregistrer !");
+      } else {
+        link.click();
+        toast?.("✅ Logo téléchargé !");
+      }
+    } catch(e) {
+      toast?.("❌ Erreur téléchargement — réessaie.", "err");
+    }
   };
 
   return (
@@ -6450,7 +6424,9 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
         display:"flex", alignItems:"center", justifyContent:"center",
         minHeight:180,
       }}>
-        {STYLES[styleIdx].render()}
+        <div ref={logoRef} style={{ display:"inline-flex" }}>
+          {STYLES[styleIdx].render()}
+        </div>
       </div>
 
       {/* ── STYLES ── */}
@@ -6527,19 +6503,9 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       {/* Astuce */}
       <div style={{ background:`${couleur1}12`,border:`1px solid ${couleur1}30`,
         borderRadius:12,padding:"10px 14px",marginBottom:12,fontSize:12,color:T.sub2 }}>
-        💡 Pour utiliser votre logo : faites une{" "}
-        <strong style={{ color:couleur1 }}>capture d'écran</strong> de l'aperçu
-        et partagez sur WhatsApp, Facebook ou Instagram.
+        💡 Télécharge ton logo en PNG (fond transparent) puis partage-le directement sur WhatsApp, Facebook ou Instagram.
       </div>
 
-      <button onClick={handleShare} style={{
-        width:"100%",padding:"11px",borderRadius:10,
-        border:`1px solid ${T.border}`,cursor:"pointer",
-        fontWeight:700,fontSize:13,background:T.c2,color:T.text,
-        fontFamily:"inherit",marginBottom:8,
-      }}>
-        📸 Comment partager mon logo ?
-      </button>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
         <button onClick={saveLogo} disabled={saving} style={{
           padding:"12px",borderRadius:10,
@@ -6551,62 +6517,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
         }}>
           {saving ? "⏳..." : saved ? "✅ Sauvegardé" : "💾 Sauvegarder"}
         </button>
-        <button onClick={async()=>{
-          // Télécharger le logo comme image PNG
-          try {
-            toast?.("⏳ Préparation...");
-            const size = 400;
-            const canvas = document.createElement("canvas");
-            canvas.width = size; canvas.height = size;
-            const ctx = canvas.getContext("2d");
-            // Fond
-            ctx.fillStyle = "#05090f";
-            ctx.fillRect(0,0,size,size);
-            // Logo selon style
-            const r = forme==="rond"?"50%" : forme==="carre"?"20px":"0px";
-            if(styleIdx===0||styleIdx===2||styleIdx===3){
-              // Cercle/carré avec initiales
-              const logoSize = styleIdx===2?120:styleIdx===3?100:160;
-              const x=(size-logoSize)/2, y=(size-logoSize)/2;
-              const grad=ctx.createLinearGradient(x,y,x+logoSize,y+logoSize);
-              grad.addColorStop(0,couleur1); grad.addColorStop(1,couleur2);
-              ctx.fillStyle=grad;
-              const borderR=forme==="rond"?logoSize/2:forme==="carre"?20:0;
-              ctx.beginPath();
-              if(ctx.roundRect){ctx.roundRect(x,y,logoSize,logoSize,borderR);}else{ctx.rect(x,y,logoSize,logoSize);}
-              ctx.fill();
-              ctx.fillStyle="#fff";
-              ctx.font=`bold ${Math.round(logoSize*0.38)}px Arial`;
-              ctx.textAlign="center"; ctx.textBaseline="middle";
-              ctx.fillText(initials,size/2,size/2);
-            } else {
-              // Icône + Nom
-              const iconSize=100, ix=(size-iconSize)/2, iy=(size-iconSize)/2-20;
-              const grad=ctx.createLinearGradient(ix,iy,ix+iconSize,iy+iconSize);
-              grad.addColorStop(0,couleur1); grad.addColorStop(1,couleur2);
-              ctx.fillStyle=grad;
-              ctx.beginPath();
-              if(ctx.roundRect){ctx.roundRect(ix,iy,iconSize,iconSize,forme==="rond"?50:16);}else{ctx.rect(ix,iy,iconSize,iconSize);}
-              ctx.fill();
-              ctx.font="44px Arial"; ctx.textAlign="center"; ctx.textBaseline="middle";
-              ctx.fillText("🌍",size/2,iy+iconSize/2);
-              ctx.fillStyle=couleur1;
-              ctx.font=`bold 22px Arial`;
-              ctx.fillText(nom,size/2,iy+iconSize+28);
-            }
-            const link=document.createElement("a");
-            link.download=`logo-${(nom||"business").toLowerCase().replace(/\s+/g,"-")}.png`;
-            const logoUrl=canvas.toDataURL("image/png");
-            link.href=logoUrl;
-            if(/iPad|iPhone|iPod/.test(navigator.userAgent)){
-              window.open(logoUrl,"_blank");
-              toast?.("✅ Appuie longuement sur l'image → Enregistrer !");
-            } else {
-              link.click();
-              toast?.("✅ Logo téléchargé !");
-            }
-          } catch(e){ toast?.("📸 Fais une capture d'écran de l'aperçu !"); }
-        }} style={{
+        <button onClick={downloadLogo} style={{
           padding:"12px",borderRadius:10,
           border:`1px solid ${couleur1}44`,cursor:"pointer",
           fontWeight:800,fontSize:13,
