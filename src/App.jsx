@@ -3,6 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import { COUNTRIES, getCitiesForCountry, normalizeLegacyCountry, countryLabel } from "./data/locations.js";
 import LocationPicker from "./components/LocationPicker.jsx";
 import { useMediaQuery, useViewport, BREAKPOINTS } from "./hooks/useMediaQuery.js";
+import NetworkShell from "./components/network/NetworkShell.jsx";
+import CoachIA from "./components/coach/CoachIA.jsx";
+import { PLANS, INF, TEST_MODE, TRIAL_DAYS, TRIAL_PLAN, ROLE_LABELS } from "./data/pricing.js";
 
 // ══════════════════════════════════════════════════════
 // App v34 — Freemium découverte (base v31 intacte) :
@@ -176,13 +179,7 @@ const T = {
   text:"#dff0ff",sub:"#4a7090",sub2:"#80a8c8",ink:"#000",
 };
 
-const INF = Number.POSITIVE_INFINITY;
-
-const PLANS = {
-  free:    {label:"Free",    emoji:"🌱",price:0,    col:T.sub2, maxTx:10, maxCli:3,   maxInv:2,   maxEmp:1,   pdf:false,wa:false,mm:false,ai:false},
-  pro:     {label:"Pro",     emoji:"⚡",price:4900, col:T.gr,   maxTx:INF,maxCli:INF, maxInv:INF, maxEmp:INF, pdf:true, wa:true, mm:true, ai:true},
-  business:{label:"Business",emoji:"🏆",price:9900, col:T.gold, maxTx:INF,maxCli:INF, maxInv:INF, maxEmp:INF, pdf:true, wa:true, mm:true, ai:true},
-};
+// PLANS / INF / TEST_MODE / TRIAL_* — voir src/data/pricing.js
 
 // ══════════════════════════════════════════════════════
 //  CONVERSION FCFA — affichage international
@@ -785,6 +782,16 @@ function AuthPage({onLogin}){
           refBy:user.user_metadata?.ref_by||refBy,
         };
         await seed(u.id);
+        // ── Essai gratuit Pro (TRIAL_DAYS jours) — reste "free" si l'insertion échoue, non bloquant ──
+        try{
+          const s3=await getSupa();
+          const trialEnd=new Date(Date.now()+TRIAL_DAYS*24*60*60*1000).toISOString();
+          await s3.from("subscriptions").insert({
+            id:xid(),user_id:u.id,plan:TRIAL_PLAN,status:"active",
+            is_trial:true,paid_at:null,expires_at:trialEnd,
+            created_at:new Date().toISOString(),updated_at:new Date().toISOString(),
+          });
+        }catch(_){}
         onLogin(u);
         return;
       }
@@ -2843,327 +2850,10 @@ USING (true);
 }
 
 
-// ════════════════════════════════════════════════════════
-//  COACH IA — composant externe stable (hors Dashboard)
-//  Props: ses, accent, txs, clis, invs, sales, exps,
-//         profit, gPct, goal, setPage, fmtf
-// ════════════════════════════════════════════════════════
-function CoachIA({ ses, accent, txs, clis, invs, sales, exps, profit, gPct, goal, setPage, fmtf }) {
-  const isFr = _globalLang === "fr";
-
-  const VIDEOS = [
-    {
-      id: "welcome", emoji: "👋",
-      label: isFr ? "Bienvenue" : "Welcome",
-      col: accent,
-      script: isFr
-        ? "Bonjour 👋 bienvenue sur VierAfrik.\nJe vais te montrer comment gagner de l'argent ici."
-        : "Hello 👋 welcome to VierAfrik.\nLet me show you how to make money here.",
-      action: { label: isFr ? "⚡ Démarrer" : "⚡ Get started", fn: () => setPage("action") },
-      url: "",
-    },
-    {
-      id: "earn", emoji: "💰",
-      label: isFr ? "Gagner de l'argent" : "Make money",
-      col: T.gr,
-      script: isFr
-        ? "Tu veux gagner de l'argent ?\nPublie ton service dans Action Rapide.\nRéponds vite aux clients.\nEt ajoute-les dans ton espace pour bien t'organiser."
-        : "Want to make money?\nPost your service in Quick Action.\nRespond fast to clients.\nAnd add them to your space to stay organized.",
-      action: { label: isFr ? "⚡ Action Rapide" : "⚡ Quick Action", fn: () => setPage("action") },
-      url: "",
-    },
-    {
-      id: "clients", emoji: "📢",
-      label: isFr ? "Trouver des clients" : "Find clients",
-      col: T.blue,
-      script: isFr
-        ? "Tu cherches des clients ?\nClique sur Action Rapide, choisis ton activité,\net contacte directement les personnes."
-        : "Looking for clients?\nClick Quick Action, choose your activity,\nand contact people directly.",
-      action: { label: isFr ? "⚡ Trouver des clients" : "⚡ Find clients", fn: () => setPage("action") },
-      url: "",
-    },
-    {
-      id: "app", emoji: "🛠️",
-      label: isFr ? "Utiliser l'application" : "Use the app",
-      col: T.teal,
-      script: isFr
-        ? "Ajoute tes clients, crée tes factures,\net gère ton argent facilement ici."
-        : "Add your clients, create invoices,\nand manage your money easily here.",
-      action: { label: isFr ? "👥 Mes clients" : "👥 My clients", fn: () => setPage("cli") },
-      url: "",
-    },
-    {
-      id: "pro", emoji: "⭐",
-      label: isFr ? "Devenir Pro" : "Go Pro",
-      col: T.gold,
-      script: isFr
-        ? "Passe en mode Pro pour être plus visible\net gagner encore plus de clients."
-        : "Go Pro to be more visible\nand gain even more clients.",
-      action: { label: isFr ? "💎 Voir les plans" : "💎 View plans", fn: () => setPage("plans") },
-      url: "",
-    },
-  ];
-
-  const [videoMode,   setVideoMode]   = useState("menu");
-  const [activeVideo, setActiveVideo] = useState(null);
-  const [audioOnly,   setAudioOnly]   = useState(false);
-  const [localMsg,    setLocalMsg]    = useState("");
-  const [localChat,   setLocalChat]   = useState([{
-    r: "ai",
-    t: t("coachGreet", ses?.name?.split(" ")[0] || "entrepreneur"),
-  }]);
-  const [localCLoad, setLocalCL] = useState(false);
-  // Historique au format Anthropic pour le contexte multi-tours
-  const [chatHistory, setChatHistory] = useState([]);
-  const vidRef      = useRef(null);
-  const chatEndRef  = useRef(null);
-
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [localChat]);
-
-  const playVideo  = (v) => { setActiveVideo(v); setVideoMode("playing"); setAudioOnly(false); };
-  const showText   = (v) => { setActiveVideo(v); setVideoMode("text"); };
-  const backToMenu = ()  => { setVideoMode("menu"); setActiveVideo(null); };
-
-  // ── handleSend — appel sécurisé vers /api/coach ──
-  const handleSend = useCallback(async () => {
-    if (!localMsg.trim() || localCLoad) return;
-    const msg = localMsg.trim();
-    setLocalMsg("");
-    // Ajouter le message utilisateur dans l'UI
-    setLocalChat(h => [...h, { r: "user", t: msg }]);
-    setLocalCL(true);
-
-    // Nouveau message à ajouter à l'historique Anthropic
-    const newUserMsg = { role: "user", content: msg };
-    const updatedHistory = [...chatHistory, newUserMsg];
-
-    try {
-      const res = await fetch("/api/coach", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: msg,
-          // Historique sans le dernier message (déjà dans "message")
-          history: chatHistory,
-          userData: {
-            name:      ses?.name?.split(" ")[0] || "entrepreneur",
-            business:  ses?.business || "mon business",
-            sales,
-            expenses:  exps,
-            profit,
-            clients:   clis.filter(c => c.status === "active").length,
-            invoices:  invs.length,
-            overdueInv: invs.filter(i => i.status === "overdue").length,
-            goal,
-            gPct,
-            currency: "FCFA",
-          },
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.reply) {
-        throw new Error(data.error || "Réponse invalide");
-      }
-
-      const reply = data.reply;
-
-      // Ajouter la réponse IA dans l'UI
-      setLocalChat(h => [...h, { r: "ai", t: reply }]);
-
-      // Mettre à jour l'historique Anthropic (user + assistant)
-      setChatHistory([...updatedHistory, { role: "assistant", content: reply }]);
-
-    } catch (err) {
-      console.error("[CoachIA] Erreur appel /api/coach:", err);
-      // Fallback local — réponse contextuelle si l'API est indisponible
-      const fallbackReply = (() => {
-        const ac = clis.filter(c => c.status === "active").length;
-        const ov = invs.filter(i => i.status === "overdue").length;
-        if (sales > 0) return `💰 Ce mois tu as ${new Intl.NumberFormat("fr-FR").format(Math.round(sales))} FCFA de ventes. ${ov > 0 ? `⚠️ ${ov} facture(s) en retard à relancer.` : "Continue sur cette lancée 🚀"}`;
-        if (ac > 0) return `👥 Tu as ${ac} client(s) actif(s). Relance-les aujourd'hui pour générer des ventes 📱`;
-        return `🌍 Bienvenue ! Commence par ajouter une vente ou un client pour que je puisse t'analyser ta situation.`;
-      })();
-      setLocalChat(h => [...h, { r: "ai", t: fallbackReply }]);
-    } finally {
-      setLocalCL(false);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localMsg, localCLoad, chatHistory, ses, sales, exps, profit, clis, invs, goal, gPct]);
-
-  // ── VideoCard ──
-  const VideoCard = ({ v, big }) => (
-    <div
-      style={{ background: `linear-gradient(135deg,${T.c1},${T.c2})`, border: `2px solid ${v.col}33`, borderRadius: big ? 20 : 16, overflow: "hidden", cursor: "pointer", transition: "all .22s cubic-bezier(.34,1.56,.64,1)" }}
-      onMouseEnter={e => { e.currentTarget.style.borderColor = v.col + "88"; e.currentTarget.style.transform = "translateY(-2px)"; }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = v.col + "33"; e.currentTarget.style.transform = "translateY(0)"; }}>
-      <div onClick={() => playVideo(v)}
-        style={{ position: "relative", height: big ? 180 : 130, background: `linear-gradient(135deg,${v.col}18,${v.col}08)`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: big ? 64 : 52, height: big ? 64 : 52, borderRadius: "50%", background: v.col, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 0 30px ${v.col}66` }}>
-          <span style={{ fontSize: big ? 28 : 22, marginLeft: 4 }}>▶</span>
-        </div>
-        <div style={{ position: "absolute", bottom: 10, right: 12, background: "rgba(0,0,0,.6)", borderRadius: 8, padding: "2px 8px", fontSize: 9, color: "#fff", fontWeight: 700 }}>10–20s</div>
-        <div style={{ position: "absolute", top: 10, left: 12, fontSize: big ? 28 : 22 }}>{v.emoji}</div>
-      </div>
-      <div style={{ padding: "12px 14px" }}>
-        <div style={{ fontWeight: 800, fontSize: big ? 15 : 13, color: T.text, marginBottom: 4 }}>{v.label}</div>
-        <div style={{ fontSize: 10, color: T.sub2, lineHeight: 1.5, marginBottom: 10, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-          {v.script.split("\n")[0]}…
-        </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button onClick={() => playVideo(v)} style={{ flex: 2, padding: "7px", borderRadius: 9, border: "none", background: v.col, color: T.ink, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, fontSize: 10 }}>▶️ Regarder</button>
-          <button onClick={() => showText(v)}  style={{ flex: 1, padding: "7px", borderRadius: 9, border: `1px solid ${T.border}`, background: T.c2, color: T.sub2, cursor: "pointer", fontFamily: "inherit", fontWeight: 600, fontSize: 10 }}>💬 Lire</button>
-        </div>
-      </div>
-    </div>
-  );
-
-  // ── VideoPlayer ──
-  const VideoPlayer = ({ v }) => (
-    <div style={{ animation: "slideUp .3s ease both" }}>
-      <button onClick={backToMenu} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 8, color: T.sub2, padding: "5px 14px", cursor: "pointer", fontFamily: "inherit", fontSize: 11, marginBottom: 16, display: "inline-flex", alignItems: "center", gap: 5 }}>← Retour</button>
-      <div style={{ background: `linear-gradient(135deg,${T.c1},${T.c2})`, border: `2px solid ${v.col}44`, borderRadius: 20, overflow: "hidden" }}>
-        <div style={{ position: "relative", background: `linear-gradient(135deg,${v.col}18,${v.col}08)`, minHeight: 220, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {v.url ? (
-            <video ref={vidRef} controls={!audioOnly} style={{ width: "100%", maxHeight: 320, display: audioOnly ? "none" : "block", outline: "none" }} playsInline>
-              <source src={v.url} type="video/mp4"/>
-            </video>
-          ) : (
-            <div style={{ textAlign: "center", padding: "2rem" }}>
-              <div style={{ fontSize: 72, marginBottom: 12 }}>{v.emoji}</div>
-              <div style={{ fontWeight: 800, fontSize: 16, color: T.text, marginBottom: 6 }}>{v.label}</div>
-              <div style={{ fontSize: 12, color: T.sub2, marginBottom: 16, lineHeight: 1.6, maxWidth: 300 }}>🎥 Vidéo bientôt disponible.<br/>Lis le script ci-dessous en attendant.</div>
-              <button onClick={() => setVideoMode("text")} style={{ padding: "9px 20px", borderRadius: 10, border: `1px solid ${v.col}55`, background: `${v.col}18`, color: v.col, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, fontSize: 12 }}>💬 Lire le script →</button>
-            </div>
-          )}
-          {v.url && (
-            <button onClick={() => { setAudioOnly(a => !a); if (vidRef.current) vidRef.current.play(); }}
-              style={{ position: "absolute", top: 12, right: 12, background: "rgba(0,0,0,.6)", border: "none", borderRadius: 8, color: "#fff", padding: "5px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: 10, fontWeight: 600 }}>
-              {audioOnly ? "📹 Voir" : "🔊 Audio seul"}
-            </button>
-          )}
-          {audioOnly && v.url && (
-            <div style={{ position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)", background: "rgba(0,0,0,.85)", borderRadius: 10, padding: "8px 16px", fontSize: 12, color: "#fff", maxWidth: "85%", textAlign: "center", lineHeight: 1.5 }}>
-              {v.script.split("\n").map((l, i) => <div key={i}>{l}</div>)}
-            </div>
-          )}
-        </div>
-        <div style={{ padding: "16px 18px" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: T.sub, marginBottom: 10 }}>📜 Script</div>
-          <div style={{ background: T.c3, borderRadius: 12, padding: "12px 15px", marginBottom: 14 }}>
-            {v.script.split("\n").map((l, i) => (
-              <div key={i} style={{ fontSize: 13, color: T.text, lineHeight: 1.7, display: "flex", gap: 8, alignItems: "flex-start" }}>
-                {l && <span style={{ color: v.col, flexShrink: 0, marginTop: 2 }}>›</span>}
-                <span>{l || <br/>}</span>
-              </div>
-            ))}
-          </div>
-          <button onClick={() => v.action.fn()} style={{ width: "100%", padding: "13px", borderRadius: 13, border: "none", background: `linear-gradient(135deg,${v.col},${v.col}cc)`, color: T.ink, fontFamily: "inherit", fontWeight: 900, fontSize: 14, cursor: "pointer", letterSpacing: "-.02em", boxShadow: `0 8px 24px ${v.col}44`, marginBottom: 8 }}>
-            {v.action.label} →
-          </button>
-          <div style={{ display: "flex", gap: 7 }}>
-            <button onClick={backToMenu} style={{ flex: 1, padding: "9px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.c2, color: T.sub2, cursor: "pointer", fontFamily: "inherit", fontWeight: 600, fontSize: 11 }}>← Autres vidéos</button>
-            <button onClick={() => showText(v)}  style={{ flex: 1, padding: "9px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.c2, color: T.sub2, cursor: "pointer", fontFamily: "inherit", fontWeight: 600, fontSize: 11 }}>💬 Version texte</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  // ── Mode texte ──
-  const TextMode = ({ v }) => (
-    <div style={{ animation: "slideUp .3s ease both" }}>
-      <button onClick={backToMenu} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 8, color: T.sub2, padding: "5px 14px", cursor: "pointer", fontFamily: "inherit", fontSize: 11, marginBottom: 16, display: "inline-flex", alignItems: "center", gap: 5 }}>← Retour</button>
-      <div style={{ background: `linear-gradient(135deg,${T.c1},${T.c2})`, border: `2px solid ${v.col}44`, borderRadius: 20, padding: "1.6rem" }}>
-        <div style={{ fontSize: 48, marginBottom: 10, textAlign: "center" }}>{v.emoji}</div>
-        <div style={{ fontWeight: 900, fontSize: 18, letterSpacing: "-.03em", textAlign: "center", marginBottom: 4 }}>{v.label}</div>
-        <div style={{ fontSize: 11, color: T.sub2, textAlign: "center", marginBottom: 20 }}>💬 Version texte du coach</div>
-        <div style={{ background: T.c3, borderRadius: 14, padding: "16px 18px", marginBottom: 18 }}>
-          {v.script.split("\n").map((l, i) => (
-            <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "6px 0", borderBottom: i < v.script.split("\n").length - 1 ? `1px solid ${T.border}` : "none" }}>
-              {l && <span style={{ color: v.col, fontSize: 16, flexShrink: 0, lineHeight: 1 }}>›</span>}
-              <span style={{ fontSize: 13, color: T.text, lineHeight: 1.6 }}>{l || ""}</span>
-            </div>
-          ))}
-        </div>
-        <button onClick={() => playVideo(v)} style={{ width: "100%", padding: "12px", borderRadius: 12, border: `2px solid ${v.col}55`, background: `${v.col}12`, color: v.col, fontFamily: "inherit", fontWeight: 800, fontSize: 13, cursor: "pointer", marginBottom: 10 }}>▶️ Voir la vidéo</button>
-        <button onClick={() => v.action.fn()} style={{ width: "100%", padding: "12px", borderRadius: 12, border: "none", background: `linear-gradient(135deg,${v.col},${v.col}cc)`, color: T.ink, fontFamily: "inherit", fontWeight: 900, fontSize: 13, cursor: "pointer", boxShadow: `0 6px 20px ${v.col}44` }}>
-          {v.action.label} →
-        </button>
-      </div>
-    </div>
-  );
-
-  // ── Menu principal ──
-  const menuJSX = (
-    <div style={{ animation: "slideUp .3s ease both" }}>
-      <div style={{ textAlign: "center", marginBottom: "1.6rem" }}>
-        <div style={{ width: 72, height: 72, borderRadius: 20, background: `linear-gradient(135deg,${accent},${T.teal})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, margin: "0 auto 12px", boxShadow: `0 0 40px ${accent}44` }}>🎥</div>
-        <div style={{ fontWeight: 900, fontSize: 22, letterSpacing: "-.04em", marginBottom: 4 }}>Coach <span style={{ color: accent }}>VierAfrik</span></div>
-        <div style={{ fontSize: 12, color: T.sub2 }}>{t("coachSub")}</div>
-      </div>
-      <div style={{ marginBottom: 16 }}><VideoCard v={VIDEOS[0]} big/></div>
-      <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: T.sub, marginBottom: 10 }}>{t("chooseSubject")}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
-        {VIDEOS.slice(1).map(v => <VideoCard key={v.id} v={v}/>)}
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-        <div style={{ flex: 1, height: 1, background: T.border }}/>
-        <div style={{ fontSize: 11, color: T.sub, fontWeight: 600 }}>🤖 {t("aiCoach").replace("🤖 ","")}</div>
-        <div style={{ flex: 1, height: 1, background: T.border }}/>
-      </div>
-      <div style={{ background: T.c1, border: `1px solid ${T.border}`, borderRadius: 14, padding: "1rem", marginBottom: 9 }}>
-        <div style={{ height: 220, overflowY: "auto", display: "flex", flexDirection: "column", gap: 9, marginBottom: 9 }}>
-          {localChat.map((m, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: m.r === "user" ? "flex-end" : "flex-start" }}>
-              <div style={{ maxWidth: "82%", padding: "9px 12px", borderRadius: m.r === "user" ? "14px 14px 3px 14px" : "3px 14px 14px 14px", background: m.r === "user" ? accent : T.c2, color: m.r === "user" ? T.ink : T.text, fontSize: 11, lineHeight: 1.6 }}>
-                {m.r === "ai" && <div style={{ fontWeight: 700, fontSize: 9, color: accent, marginBottom: 2 }}>🤖 Coach VierAfrik</div>}
-                {m.t}
-              </div>
-            </div>
-          ))}
-          {localCLoad && <div style={{ display: "flex" }}><div style={{ background: T.c2, padding: "9px 12px", borderRadius: "3px 14px 14px 14px", fontSize: 11, color: T.sub, display:"flex", alignItems:"center", gap:6 }}><div style={{ width:8, height:8, borderRadius:"50%", background:accent, animation:"pulse .8s infinite" }}/>{t("thinking")}</div></div>}
-          <div ref={chatEndRef}/>
-        </div>
-        <div style={{ display: "flex", gap: 7 }}>
-          <input
-            style={{ flex: 1, padding: "10px 13px", borderRadius: 9, border: `1px solid ${T.border}`, background: T.c2, color: T.text, fontFamily: "inherit", fontSize: 12, outline: "none" }}
-            placeholder={t("typeQuestion")}
-            value={localMsg}
-            onChange={ev => setLocalMsg(ev.target.value)}
-            onKeyDown={ev => { if (ev.key === "Enter" && !localCLoad) { ev.preventDefault(); handleSend(); } }}
-          />
-          <Btn ch={localCLoad ? "⏳" : t("send2")} dis={localCLoad} onClick={handleSend} sx={{ flexShrink: 0 }}/>
-        </div>
-        <div style={{ display: "flex", gap: 5, marginTop: 7, flexWrap: "wrap" }}>
-          {[
-            "Comment augmenter mes ventes ?",
-            "Analyse ma situation ce mois",
-            "Comment trouver plus de clients ?",
-            "Conseille-moi sur mes dépenses",
-          ].map(q => (
-            <button key={q} onClick={() => setLocalMsg(q)}
-              style={{ background: T.c2, border: `1px solid ${T.border}`, borderRadius: 20, padding: "3px 10px", color: T.sub2, fontSize: 9, cursor: "pointer", fontFamily: "inherit", transition:"all .15s" }}
-              onMouseEnter={e => e.currentTarget.style.borderColor=accent}
-              onMouseLeave={e => e.currentTarget.style.borderColor=T.border}>
-              {q}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-
-  if (videoMode === "playing" && activeVideo) return <VideoPlayer v={activeVideo}/>;
-  if (videoMode === "text"    && activeVideo) return <TextMode    v={activeVideo}/>;
-  return menuJSX;
-}
-
 // ════════════════════════════════
 //  DASHBOARD PRINCIPAL
 // ════════════════════════════════
-// ── Modules intégrés ──
+// ── Modules intégrés — CoachIA vit désormais dans src/components/coach/ ──
 
 
 function Dashboard({ses,logout,updSes}){
@@ -3201,8 +2891,8 @@ function Dashboard({ses,logout,updSes}){
   // FIX v31 #1 — toastRef permet d'appeler toast() depuis loadAll (useEffect)
   const toastRef=useRef(null);
 
-  // ── v34 FREEMIUM : compteur découverte ──
-  const FREE_LIMIT = 5;
+  // ── Compteur d'activité (analytics uniquement — le blocage se fait
+  //  par ressource dans canAdd(), pas par ce compteur global) ──
   const [usageCount, setUsageCount] = useState(0);
   const [showUpgradeWall, setShowUpgradeWall] = useState(false);
   const [showAvisPopup,setShowAvisPopup]=useState(false);
@@ -3244,6 +2934,7 @@ function Dashboard({ses,logout,updSes}){
         expires_at: data.expires_at,
         status: isActive?"active":"expired",
         days_left: daysLeft,
+        is_trial: !!data.is_trial,
       });
       // Sync le plan dans la session si différent
       if(isActive && data.plan && data.plan!==ses.plan){
@@ -3669,17 +3360,19 @@ function Dashboard({ses,logout,updSes}){
     ...invs.filter(i=>i.payStatus==="paid"&&i.payRef).slice(0,1).map(i=>({id:"p"+i.id,k:"ok",msg:`${t("statusPaid").replace("✅ ","")}: ${i.num}`})),
   ];
 
-  // v34 — canAdd : mode découverte libre
-  // Admin ou premium → toujours OK
-  // Free → OK si usage_count < 5, sinon UpgradeWall
+  // canAdd — bloque à la limite RÉELLE et annoncée de chaque ressource
+  // (10 transactions / 3 clients / 2 factures en Free), pas un compteur
+  // global arbitraire qui contredisait la page tarifs.
   const canAdd=type=>{
     if(isAdmin) return true;
     if(isSubActive) return true;
-    if(usageCount>=FREE_LIMIT){ setShowUpgradeWall(true); return false; }
+    const counts = { tx: txs.length, cli: clis.length, inv: invs.length };
+    const maxes  = { tx: plan.maxTx, cli: plan.maxCli, inv: plan.maxInv };
+    if(type in counts && counts[type] >= maxes[type]){ setShowUpgradeWall(type); return false; }
     return true;
   };
 
-  // trackUsage — appelé après chaque action réussie (Free uniquement)
+  // trackUsage — analytics uniquement (n'affecte plus le blocage)
   const trackUsage=async()=>{
     if(isAdmin||isSubActive) return;
     const next=usageCount+1;
@@ -3690,7 +3383,6 @@ function Dashboard({ses,logout,updSes}){
       if(ex){await s.from("user_activity").update({usage_count:next,last_action_at:new Date().toISOString()}).eq("user_id",uid);}
       else{await s.from("user_activity").insert({user_id:uid,usage_count:next,action_count:next,user_active:true,last_action_at:new Date().toISOString(),created_at:new Date().toISOString()});}
     }catch(e){console.warn("[trackUsage]",e);}
-    if(next>=FREE_LIMIT) setTimeout(()=>setShowUpgradeWall(true),900);
   };
   // Verrou pour nextNum — évite les doublons de séquence en cas de double-clic rapide
   // Le ref persiste entre les renders sans provoquer de re-render
@@ -4351,8 +4043,8 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
           {gPct>=100&&<div style={{fontSize:11,color:T.gold,fontWeight:700}}>🏆 Objectif dépassé !</div>}
         </div>
       </div>
-      {/* KPIs */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:12}}>
+      {/* KPIs — 2 colonnes sur mobile, 4 sur grand écran au lieu de 2 cartes étirées */}
+      <div className="pg-grid-kpi" style={{marginBottom:12}}>
         {[
           {ic:"💰",l:"Ventes du mois",v:sales,sub:`${mTxs.filter(t=>t.type==="sale").length} transactions`,co:T.blue,bg:"rgba(26,120,255,.1)",grad:"rgba(26,120,255,.2)"},
           {ic:"📤",l:"Dépenses",v:exps,sub:`${mTxs.filter(t=>t.type==="expense").length} transactions`,co:T.orange,bg:"rgba(255,90,24,.1)",grad:"rgba(255,90,24,.2)"},
@@ -4741,9 +4433,9 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     // ── Ajouter un employé ──
     const addEmployee = async () => {
       if (!validateEmp()) return;
-      // Limite plan Free
+      // Limite du plan actuel (1 en Free, 5 en Pro, illimité en Business)
       if (!isAdmin && emps.length >= (plan.maxEmp ?? 1)) {
-        toast(t("empFreePlan"), "warn"); return;
+        toast(plan.maxEmp===1 ? t("empFreePlan") : `🔒 Plan ${plan.label} — ${plan.maxEmp} employés max. Passez à Business pour une équipe illimitée !`, "warn"); return;
       }
       setSaving(true);
       const emp = {
@@ -4752,6 +4444,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         phone: fmEmp.phone || "",
         salary: parseFloat(fmEmp.salary),
         currency: fmEmp.currency || "XOF",
+        role: plan.roles ? (fmEmp.role || "Employé") : "Employé",
         created_at: new Date().toISOString(),
       };
       // Optimistic update
@@ -4782,6 +4475,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         name: fmEmp.name.trim(),
         salary: parseFloat(fmEmp.salary),
         currency: fmEmp.currency || "XOF",
+        role: fmEmp.role || "Employé",
       };
       setEmps(prev => prev.map(e => e.id === updated.id ? updated : e));
       setMdlEmp(null); setFmEmp({});
@@ -4790,7 +4484,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         const s = await getSupa();
         await s.from("employees").update({
           name: updated.name, phone: updated.phone || "",
-          salary: updated.salary, currency: updated.currency,
+          salary: updated.salary, currency: updated.currency, role: updated.role,
         }).eq("id", updated.id);
       } catch(e) { console.error("employees update:", e); }
       setSaving(false);
@@ -4877,7 +4571,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
           <div>
             <div style={{ fontWeight:900, fontSize:22, letterSpacing:"-.03em" }}>{t("empTitle")}</div>
             <div style={{ fontSize:11, color:T.sub2, marginTop:2 }}>
-              {emps.length} employé{emps.length!==1?"s":""} · {activePlan==="free"?"1 max (Free)":"Illimité"}
+              {emps.length} employé{emps.length!==1?"s":""} · {plan.maxEmp===INF?"Illimité":`${emps.length}/${plan.maxEmp} max (${plan.label})`}
             </div>
           </div>
           <Btn ch={t("newEmp")} onClick={() => { setFmEmp({ currency: IS_AFRICA ? "XOF" : DETECTED_CURRENCY }); setMdlEmp("add"); }}/>
@@ -4912,8 +4606,19 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
 
         {/* Liste employés */}
         {loadingE ? (
-          <div style={{ textAlign:"center", padding:"3rem", color:T.sub }}>
-            <div style={{ fontSize:32, marginBottom:10 }}>⏳</div>Chargement…
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {[0,1,2].map(k=>{
+              const shimmer={ background:`linear-gradient(90deg,${T.c2} 25%,${T.c3} 50%,${T.c2} 75%)`, backgroundSize:"200% 100%", animation:"skeletonShimmer 1.4s ease infinite" };
+              return (
+                <div key={k} style={{ background:T.c1, border:`1px solid ${T.border}`, borderRadius:18, padding:"1.1rem", display:"flex", alignItems:"center", gap:12 }}>
+                  <div style={{ width:44, height:44, borderRadius:13, flexShrink:0, ...shimmer }}/>
+                  <div style={{ flex:1 }}>
+                    <div style={{ height:12, width:"55%", borderRadius:6, marginBottom:8, ...shimmer }}/>
+                    <div style={{ height:10, width:"35%", borderRadius:6, ...shimmer }}/>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : emps.length === 0 ? (
           <div style={{ textAlign:"center", padding:"3rem 1.5rem", background:T.c1, border:`1px solid ${T.border}`, borderRadius:20 }}>
@@ -4937,7 +4642,12 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                       {emp.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontWeight:800, fontSize:14, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{emp.name}</div>
+                      <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                        <div style={{ fontWeight:800, fontSize:14, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{emp.name}</div>
+                        {plan.roles && emp.role && (
+                          <span style={{ fontSize:8.5, fontWeight:800, color:T.gold, background:`${T.gold}18`, border:`1px solid ${T.gold}33`, borderRadius:20, padding:"1px 7px", flexShrink:0 }}>{emp.role}</span>
+                        )}
+                      </div>
                       {emp.phone && <div style={{ fontSize:10, color:T.sub2, marginTop:1 }}>📞 {emp.phone}</div>}
                     </div>
                     {/* Salaire */}
@@ -5035,6 +4745,13 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
               </select>
             </FL>
           </div>
+          {plan.roles && (
+            <FL l="Rôle dans l'équipe">
+              <select style={IS2} value={fmEmp.role||"Employé"} onChange={ev=>setFmEmp(f=>({...f,role:ev.target.value}))}>
+                {ROLE_LABELS.map(r=><option key={r} value={r}>{r}</option>)}
+              </select>
+            </FL>
+          )}
           <div style={{ background:`${T.gr}08`, border:`1px solid ${T.gr}18`, borderRadius:9, padding:"9px 12px", marginBottom:13, fontSize:11, color:T.sub2 }}>
             🌍 Système universel · Aucun calcul fiscal · 100% mondial
           </div>
@@ -5363,6 +5080,48 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             <Btn sm v="g" ch="⬇ Clients CSV" onClick={()=>csvExport(clis,"clients")}/>
           </div>
         </div>
+
+        {/* Statistiques avancées — Business */}
+        <div style={{background:`linear-gradient(135deg,${T.c1},${T.c2})`,border:`1px solid ${plan.advancedStats?T.gold+"33":T.border}`,borderRadius:16,padding:"1.2rem",marginTop:14,position:"relative",overflow:"hidden"}}>
+          <div style={{fontWeight:800,fontSize:13,marginBottom:14,display:"flex",alignItems:"center",gap:8,letterSpacing:"-.02em"}}>
+            <span style={{background:`${T.gold}18`,border:`1px solid ${T.gold}30`,borderRadius:8,padding:"4px 8px",fontSize:12}}>🏆</span>
+            Comparaison mensuelle avancée
+            <span style={{marginLeft:"auto",background:`${T.gold}18`,color:T.gold,fontSize:8,fontWeight:800,borderRadius:20,padding:"2px 8px"}}>BUSINESS</span>
+          </div>
+          {plan.advancedStats ? (() => {
+            const cur=chartD[chartD.length-1]||{v:0,d:0};
+            const prev=chartD[chartD.length-2]||{v:0,d:0};
+            const curProfit=cur.v-cur.d, prevProfit=prev.v-prev.d;
+            const pct=(a,b)=>b===0?(a>0?100:0):Math.round((a-b)/Math.abs(b)*100);
+            const rows=[
+              {l:"Ventes",cur:cur.v,prev:prev.v,co:T.blue},
+              {l:"Dépenses",cur:cur.d,prev:prev.d,co:T.orange},
+              {l:"Bénéfice",cur:curProfit,prev:prevProfit,co:T.gr},
+            ];
+            return (
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {rows.map(r=>{
+                  const p=pct(r.cur,r.prev);
+                  return (
+                    <div key={r.l} style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                      <span style={{fontSize:12,color:T.sub2,fontWeight:600}}>{r.l}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontWeight:800,fontSize:13,color:r.co}}>{fmtk(r.cur)} F</span>
+                        <span style={{fontSize:10,fontWeight:700,color:p>=0?T.gr:T.red,background:p>=0?`${T.gr}15`:`${T.red}15`,borderRadius:20,padding:"2px 7px"}}>{p>=0?"▲":"▼"} {Math.abs(p)}%</span>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div style={{fontSize:10,color:T.sub,marginTop:2}}>vs mois précédent</div>
+              </div>
+            );
+          })() : (
+            <div style={{textAlign:"center",padding:"0.5rem 0 0.2rem"}}>
+              <div style={{fontSize:12,color:T.sub2,marginBottom:12,lineHeight:1.6}}>Compare tes ventes, dépenses et bénéfice au mois précédent, en un coup d'œil.</div>
+              <Btn sm v="gold" ch="💎 Débloquer avec Business" onClick={()=>setPage("plans")}/>
+            </div>
+          )}
+        </div>
       </div>
     );
   };
@@ -5470,8 +5229,24 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     const isAfrica = detectIsAfrica();
     const currency = detectCurrency();
 
-    // Lancer le paiement FedaPay pour un plan donné
+    // Lancer le paiement pour un plan donné — FedaPay en réel, simulation locale en mode test
     const doSubPayment=async(planKey,planObj)=>{
+      if(TEST_MODE){
+        toast("🧪 Mode test — activation simulée, aucun paiement réel","ok",T.gold);
+        try{
+          const s=await getSupa();
+          const expires=new Date(Date.now()+30*24*60*60*1000).toISOString();
+          await s.from("subscriptions").insert({
+            id:xid(),user_id:ses.id,plan:planKey,status:"active",
+            is_trial:false,paid_at:new Date().toISOString(),expires_at:expires,
+            created_at:new Date().toISOString(),updated_at:new Date().toISOString(),
+          });
+          updSes({plan:planKey});
+          await loadSubscription();
+          toast(`✅ Plan ${planObj.label} activé (mode test) !`,"ok",T.gr);
+        }catch(e){console.error("❌ [TEST_MODE] Activation échouée:",e);toast("❌ Erreur activation test — réessayez","err");}
+        return;
+      }
       toast("⏳ Création du paiement…","ok");
       try{
         const res=await fetch("/api/fedapay",{
@@ -5489,12 +5264,19 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     // Statut abonnement affiché
     const subStatusColor=isSubActive?T.gr:(subscription?.status==="expired"?T.red:T.sub);
     const subStatusLabel=subLoading?"⏳ Chargement…":
-      isSubActive?`✅ Actif — ${subscription.days_left} jour${subscription.days_left>1?"s":""} restant${subscription.days_left>1?"s":""}`:
+      isSubActive?`${subscription.is_trial?"🎁 Essai gratuit":"✅ Actif"} — ${subscription.days_left} jour${subscription.days_left>1?"s":""} restant${subscription.days_left>1?"s":""}`:
       subscription?.status==="expired"?"🔴 Expiré":"🌱 Plan gratuit";
 
     return(
     <div>
       <div style={{fontWeight:900,fontSize:20,marginBottom:3}}>💎 Plans & Abonnements</div>
+
+      {TEST_MODE && (
+        <div style={{background:`${T.gold}12`,border:`1px solid ${T.gold}33`,borderRadius:12,padding:"9px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:9}}>
+          <span style={{fontSize:16}}>🧪</span>
+          <div style={{fontSize:11,color:T.gold,fontWeight:700}}>Mode test — les mises à niveau ci-dessous n'effectuent aucun paiement réel.</div>
+        </div>
+      )}
 
       {/* ── CARTE STATUT ABONNEMENT ── */}
       <div style={{
@@ -5585,11 +5367,17 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             [`${p.maxTx===INF?"Illimité":p.maxTx} transactions`,true],
             [`${p.maxCli===INF?"Illimité":p.maxCli} clients`,true],
             [`${p.maxInv===INF?"Illimité":p.maxInv} factures`,true],
+            [`${p.maxEmp===INF?"Employés illimités":p.maxEmp+" employé"+(p.maxEmp>1?"s":"")}`,true],
             ["PDF Factures",p.pdf],
             ["WhatsApp",p.wa],
             ["Mobile Money",p.mm],
             ["Coach IA",p.ai],
             ["Export CSV",p.ai],
+            ["Rôles d'équipe (Propriétaire/Manager/Employé)",p.roles],
+            ["Mise en avant dans le Réseau",p.featured],
+            ["Badge Entreprise vérifiée",p.verified],
+            ["Statistiques avancées",p.advancedStats],
+            ["Support prioritaire",p.prioritySupport],
           ];
           return(
             <div key={k} style={{background:T.c1,border:`2px solid ${isCur?p.col:T.border}`,borderRadius:18,padding:"1.4rem",position:"relative",overflow:"hidden",transition:"all .2s"}}
@@ -5648,7 +5436,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
       <div style={{background:T.c1,border:`1px solid ${T.border}`,borderRadius:14,padding:"1.2rem"}}>
         <div style={{fontWeight:800,fontSize:13,marginBottom:10}}>💳 Passerelles intégrées</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:8}}>
-          {[...MM,{id:"stripe",label:"Stripe",emoji:"💳",desc:"Europe · Cartes"},{id:"ps_sub",label:"Paystack Subs",emoji:"🔄",desc:"Abonnements Afrique"}].map(p=>(
+          {MM.map(p=>(
             <div key={p.id} style={{background:T.c2,border:`1px solid ${T.border}`,borderRadius:11,padding:"11px 13px"}}>
               <div style={{fontWeight:700,fontSize:12,marginBottom:1}}>{p.emoji} {p.label}</div>
               <div style={{fontSize:10,color:T.sub2}}>{p.desc}</div>
@@ -5720,6 +5508,18 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     <div>
       <div style={{fontWeight:900,fontSize:22,marginBottom:4,letterSpacing:"-.03em"}}>⚙️ Mon Compte</div>
       <div style={{color:T.sub2,fontSize:12,marginBottom:18}}>{ses.email}</div>
+      {plan.prioritySupport && (
+        <a href="https://wa.me/message" target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}>
+          <div style={{background:`linear-gradient(135deg,${T.gold}12,${T.c1})`,border:`1px solid ${T.gold}33`,borderRadius:14,padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
+            <span style={{fontSize:22}}>💬</span>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:800,fontSize:13,color:T.gold}}>Support prioritaire Business</div>
+              <div style={{fontSize:11,color:T.sub2,marginTop:1}}>Une question ? Contacte notre équipe en priorité sur WhatsApp.</div>
+            </div>
+            <span style={{color:T.gold,fontSize:16}}>→</span>
+          </div>
+        </a>
+      )}
       <div className="pg-grid-2">
         {/* Profil */}
         <div style={{background:T.c1,border:`1px solid ${T.border}`,borderRadius:16,padding:"1.4rem"}}>
@@ -5896,7 +5696,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     </div>
   );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[ses.id, accent, txs.length, clis.length, invs.length, allSales]);
+  },[ses.id, accent, txs.length, clis.length, invs.length, allSales, activePlan]);
 
   // ════════════════════════════════
   //  PAGE AVIS UTILISATEURS
@@ -6195,6 +5995,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
       phone: user?.phone || "",
       activite: "",
       ville: "",
+      pays: normalizeLegacyCountry(user?.country)||"",
       whatsapp: user?.phone || "",
       couleur: accent,
       couleur2: "#00bfcc",
@@ -6227,6 +6028,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
               phone: data.phone || user?.phone || "",
               activite: data.activite || "",
               ville: data.ville || "",
+              pays: normalizeLegacyCountry(data.pays)||normalizeLegacyCountry(user?.country)||"",
               whatsapp: data.whatsapp || user?.phone || "",
               couleur: data.couleur || accent,
               couleur2: data.couleur2 || "#00bfcc",
@@ -6439,13 +6241,12 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         {/* ── FORMULAIRE ── */}
         <div style={{ background:T.c1, border:`1px solid ${T.border}`, borderRadius:14, padding:"1rem", marginBottom:12 }}>
           <div style={{ fontSize:11, fontWeight:700, color:T.sub, textTransform:"uppercase", letterSpacing:".05em", marginBottom:10 }}>✏️ Vos informations</div>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
             {[
               ["Nom complet","nom","text","Prénom Nom"],
               ["Business","business","text","Nom entreprise"],
               ["Téléphone","phone","tel","+225 07 000 0000"],
               ["Activité","activite","text","Coiffure, Commerce..."],
-              ["Ville","ville","text","Abidjan, Dakar..."],
               ["WhatsApp","whatsapp","tel","+225 07 000 0000"],
             ].map(([label,key,type,ph]) => (
               <div key={key}>
@@ -6454,6 +6255,15 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                   style={{ width:"100%", padding:"7px 9px", background:T.c2, border:`1px solid ${T.border}`, borderRadius:7, color:T.text, fontSize:12, fontFamily:"inherit" }}/>
               </div>
             ))}
+          </div>
+          <div>
+            <div style={{ fontSize:9, fontWeight:700, color:T.sub, textTransform:"uppercase", marginBottom:3 }}>Localisation</div>
+            <LocationPicker
+              theme={{ c3:T.c2, border:T.border, text:T.text, sub:T.sub, sub2:T.sub2, gr:accent }}
+              countryCode={form.pays||""}
+              city={form.ville||""}
+              onChange={({countryCode,city})=>setForm(f=>({...f,pays:countryCode,ville:city}))}
+            />
           </div>
         </div>
 
@@ -6826,893 +6636,6 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
 }
   const PgLogo = () => <LogoGenerator user={ses} accent={accent} toast={toast}/>;
   const PgSmartQR = () => <SmartQRPage user={ses} isAdmin={isAdmin} />;
-
-// ── Catégories pour ReseauCommerçants ──
-const CATEGORIES = [
-  { id:"all",    label:"Tous",        ic:"💬" },
-  { id:"travail",label:"Travail",     ic:"👷" },
-  { id:"vente",  label:"Vente",       ic:"🛒" },
-  { id:"service",label:"Service",     ic:"🔧" },
-  { id:"info",   label:"Info",        ic:"📢" },
-];
-
-
-
-function ReseauCommerçants({
-  user,
-  supabase,
-  accent = "#00d478",
-  toast,
-}) {
-  const [msgs, setMsgs]         = useState([]);
-  const [newMsg, setNewMsg]     = useState("");
-  const [categorie, setCat]     = useState("all");
-  const [filtreId, setFiltreId] = useState("all");
-  const [sending, setSending]   = useState(false);
-  const [loading, setLoading]   = useState(true);
-  const [selectedMsg, setSelectedMsg] = useState(null);
-
-  const T = {
-    c1:"#05090f", c2:"#08111d", c3:"#0d1828",
-    border:"rgba(0,210,120,0.08)", text:"#dff0ff",
-    sub:"#4a7090", sub2:"#80a8c8", ink:"#000", gr:"#00d478",
-  };
-  const IS = {
-    width:"100%", padding:"11px 14px", background:T.c3,
-    border:`1px solid ${T.border}`, borderRadius:11, color:T.text,
-    fontFamily:"inherit", fontSize:13, outline:"none", marginTop:5,
-  };
-
-  // ── Charger messages (expire après 24h) ──
-  const loadMsgs = async () => {
-    if (!supabase) return;
-    try {
-      const s = await supabase();
-      const since = new Date(Date.now() - 24*60*60*1000).toISOString();
-      const { data } = await s
-        .from("reseau_messages")
-        .select("*")
-        .gte("created_at", since)   // seulement les 24 dernières heures
-        .order("created_at", { ascending: false })
-        .limit(50);
-      setMsgs(data || []);
-    } catch (e) {
-      console.error("Réseau load error:", e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadMsgs();
-    // Actualisation toutes les 15 secondes
-    const interval = setInterval(loadMsgs, 15000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // ── Envoyer un message ──
-  const sendMsg = async () => {
-    if (!newMsg.trim()) return;
-    if (newMsg.trim().length < 5) { toast?.("⚠️ Message trop court", "warn"); return; }
-    if (newMsg.trim().length > 200) { toast?.("⚠️ Maximum 200 caractères", "warn"); return; }
-    if (!supabase) { toast?.("❌ Connexion Supabase manquante", "err"); return; }
-
-    setSending(true);
-    try {
-      const s = await supabase();
-      const expiresAt = new Date(Date.now() + 24*60*60*1000).toISOString();
-      const msg = {
-        user_id:    user?.id || "anonymous",
-        user_name:  user?.name || "Commerçant",
-        business:   user?.business || "",
-        pays:       user?.country || "CI",
-        categorie:  categorie,
-        message:    newMsg.trim(),
-        expires_at: expiresAt,
-        created_at: new Date().toISOString(),
-      };
-      const { data, error } = await s.from("reseau_messages").insert(msg).select();
-      if (error) throw error;
-      setMsgs(p => [{ ...msg, id: data?.[0]?.id || Date.now() }, ...p]);
-      setNewMsg("");
-      setCat("all");
-      toast?.("✅ Message publié — visible 24h par tous les commerçants VierAfrik !", "ok");
-    } catch (e) {
-      toast?.("❌ Erreur envoi — vérifiez votre connexion", "err");
-    } finally {
-      setSending(false);
-    }
-  };
-
-  // ── Supprimer son propre message ──
-  const deleteMsg = async (id) => {
-    if (!supabase) return;
-    try {
-      const s = await supabase();
-      await s.from("reseau_messages").delete().eq("id", id).eq("user_id", user?.id);
-      setMsgs(p => p.filter(m => m.id !== id));
-      toast?.("🗑️ Message supprimé", "ok");
-    } catch (e) {
-      toast?.("❌ Erreur suppression", "err");
-    }
-  };
-
-  // ── Temps relatif ──
-  const timeAgo = (d) => {
-    const diff = Math.round((Date.now() - new Date(d).getTime()) / 1000);
-    if (diff < 60)    return diff + "s";
-    if (diff < 3600)  return Math.round(diff / 60) + "min";
-    if (diff < 86400) return Math.round(diff / 3600) + "h";
-    return Math.round(diff / 86400) + "j";
-  };
-
-  // ── Temps restant avant expiration ──
-  const timeLeft = (d) => {
-    const left = 24*60*60*1000 - (Date.now() - new Date(d).getTime());
-    if (left <= 0) return "Expiré";
-    const h = Math.floor(left / 3600000);
-    const m = Math.floor((left % 3600000) / 60000);
-    return `Expire dans ${h}h${m > 0 ? m+"min" : ""}`;
-  };
-
-  // ── Filtrer par catégorie ──
-  const msgsFiltres = msgs.filter(m =>
-    filtreId === "all" ? true : m.categorie === filtreId
-  );
-
-  return (
-    <div style={{ fontFamily:"'Inter','Segoe UI',system-ui,sans-serif", color:T.text }}>
-
-      {/* Titre */}
-      <div style={{ fontWeight:900,fontSize:22,marginBottom:4,letterSpacing:"-.03em" }}>
-        🤝 Réseau VierAfrik
-      </div>
-      <div style={{ color:T.sub2,fontSize:12,marginBottom:6 }}>
-        Connectez-vous avec d'autres commerçants. Partagez vos besoins, trouvez de l'aide.
-      </div>
-      <div style={{ background:`${accent}12`,border:`1px solid ${accent}22`,borderRadius:8,
-        padding:"6px 12px",marginBottom:18,fontSize:11,color:accent,fontWeight:600 }}>
-        ⏱ Les messages disparaissent automatiquement après 24h
-      </div>
-
-      {/* ── ÉCRIRE UN MESSAGE ── */}
-      <div style={{ background:`linear-gradient(135deg,${T.c1},${T.c2})`,
-        border:`1px solid ${T.border}`,borderRadius:16,padding:"1.4rem",marginBottom:16 }}>
-        <div style={{ fontWeight:800,fontSize:13,marginBottom:12,display:"flex",
-          alignItems:"center",gap:8 }}>
-          <span style={{ background:`${accent}18`,border:`1px solid ${accent}30`,
-            borderRadius:8,padding:"4px 8px",fontSize:14 }}>✍️</span>
-          Publier une annonce
-        </div>
-
-        {/* Catégorie */}
-        <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:10 }}>
-          {CATEGORIES.slice(1).map(c => (
-            <div key={c.id} onClick={() => setCat(c.id)} style={{
-              background: categorie===c.id ? `${accent}25` : T.c3,
-              border: `1px solid ${categorie===c.id ? accent : T.border}`,
-              borderRadius:20, padding:"4px 10px", cursor:"pointer",
-              fontSize:11, fontWeight:700,
-              color: categorie===c.id ? accent : T.sub2,
-              transition:"all .15s",
-            }}>
-              {c.ic} {c.label}
-            </div>
-          ))}
-        </div>
-
-        <textarea
-          style={{ ...IS, height:80, resize:"none" }}
-          placeholder="Ex: Je cherche 2 personnes pour travailler dans ma boutique aujourd'hui à Abidjan… Je vends du tissu en gros, quelqu'un intéressé ?…"
-          value={newMsg}
-          onChange={ev => setNewMsg(ev.target.value)}
-          maxLength={200}
-        />
-        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6 }}>
-          <span style={{ fontSize:10,color:T.sub }}>{newMsg.length}/200</span>
-          <button
-            disabled={sending || !newMsg.trim()}
-            onClick={sendMsg}
-            style={{
-              padding:"7px 18px",borderRadius:8,border:"none",cursor:"pointer",
-              fontWeight:700,fontSize:12,background:accent,color:T.ink,
-              fontFamily:"inherit",opacity:sending||!newMsg.trim()?0.45:1,
-            }}
-          >
-            {sending ? "⏳ Envoi…" : "📢 Publier"}
-          </button>
-        </div>
-      </div>
-
-      {/* ── FILTRES ── */}
-      <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:12 }}>
-        {CATEGORIES.map(c => (
-          <div key={c.id} onClick={() => setFiltreId(c.id)} style={{
-            background: filtreId===c.id ? `${accent}20` : T.c2,
-            border: `1px solid ${filtreId===c.id ? accent : T.border}`,
-            borderRadius:20, padding:"4px 10px", cursor:"pointer",
-            fontSize:11, fontWeight:700,
-            color: filtreId===c.id ? accent : T.sub2,
-            transition:"all .15s",
-          }}>
-            {c.ic} {c.label}
-          </div>
-        ))}
-      </div>
-
-      {/* ── MESSAGES ── */}
-      <div style={{ background:T.c1,border:`1px solid ${T.border}`,borderRadius:16,
-        padding:"1.4rem" }}>
-        <div style={{ fontWeight:800,fontSize:13,marginBottom:14,
-          display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-          <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-            <span style={{ background:`${T.gr}18`,border:`1px solid ${T.gr}30`,
-              borderRadius:8,padding:"4px 8px",fontSize:14 }}>💬</span>
-            Annonces ({msgsFiltres.length})
-          </div>
-          <span style={{ fontSize:10,color:T.sub }}>🔄 Auto 15s</span>
-        </div>
-
-        {loading ? (
-          <div style={{ textAlign:"center",padding:"2rem",color:T.sub,fontSize:12 }}>
-            ⏳ Chargement…
-          </div>
-        ) : msgsFiltres.length === 0 ? (
-          <div style={{ textAlign:"center",padding:"2.5rem",color:T.sub }}>
-            <div style={{ fontSize:40,marginBottom:8 }}>🤝</div>
-            <div style={{ fontWeight:700,fontSize:13,marginBottom:4 }}>Réseau vide pour l'instant</div>
-            <div style={{ fontSize:11 }}>
-              Soyez le premier à publier une annonce !
-            </div>
-          </div>
-        ) : (
-          <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
-            {msgsFiltres.map((m, i) => {
-              const isOwn = m.user_id === user?.id;
-              const catInfo = CATEGORIES.find(c => c.id === m.categorie) || CATEGORIES[0];
-              const isTruncated = (m.message||"").length > 80;
-              return (
-                <div key={m.id || i}
-                  onClick={() => setSelectedMsg(m)}
-                  style={{
-                  background: isOwn ? `${accent}12` : T.c2,
-                  border: `1px solid ${isOwn ? accent+"44" : T.border}`,
-                  borderRadius:12, padding:"12px 14px",
-                  position:"relative",
-                  cursor:"pointer",
-                  transition:"border-color .15s, box-shadow .15s",
-                }}>
-                  {/* Header */}
-                  <div style={{ display:"flex",justifyContent:"space-between",
-                    alignItems:"flex-start",marginBottom:8,gap:8 }}>
-                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                      <div style={{
-                        width:32,height:32,borderRadius:"50%",
-                        background:`linear-gradient(135deg,${accent},#00bfcc)`,
-                        display:"flex",alignItems:"center",justifyContent:"center",
-                        fontWeight:900,fontSize:11,color:T.ink,flexShrink:0,
-                      }}>
-                        {(m.user_name||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
-                      </div>
-                      <div>
-                        <div style={{ fontWeight:700,fontSize:12,color:T.text }}>
-                          {m.user_name||"Commerçant"}
-                          {isOwn && (
-                            <span style={{ fontSize:9,color:accent,marginLeft:5,fontWeight:800 }}>
-                              • Vous
-                            </span>
-                          )}
-                        </div>
-                        {m.business && (
-                          <div style={{ fontSize:10,color:T.sub2 }}>{m.business}</div>
-                        )}
-                      </div>
-                    </div>
-                    <div style={{ display:"flex",alignItems:"center",gap:6,flexShrink:0 }}>
-                      <span style={{ fontSize:10,color:T.sub }}>{timeAgo(m.created_at)}</span>
-                      {isOwn && (
-                        <button onClick={(e) => { e.stopPropagation(); deleteMsg(m.id); }} style={{
-                          background:"rgba(255,34,85,.12)",border:"1px solid rgba(255,34,85,.2)",
-                          borderRadius:6,cursor:"pointer",color:"#ff2255",
-                          fontSize:10,padding:"2px 6px",fontFamily:"inherit",
-                        }}>🗑️</button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Message tronqué */}
-                  <div style={{ fontSize:13,color:T.text,lineHeight:1.6,marginBottom:8 }}>
-                    {isTruncated ? (m.message||"").slice(0,80)+"…" : m.message}
-                  </div>
-
-                  {/* Footer */}
-                  <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                      {m.categorie && m.categorie !== "all" && (
-                        <span style={{ background:`${accent}15`,borderRadius:20,
-                          padding:"2px 8px",fontSize:9,fontWeight:700,color:accent }}>
-                          {catInfo.ic} {catInfo.label}
-                        </span>
-                      )}
-                      {m.pays && (
-                        <span style={{ fontSize:10,color:T.sub }}>{countryLabel(m.pays)||("🌍 "+m.pays)}</span>
-                      )}
-                    </div>
-                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                      <span style={{ fontSize:9,color:T.sub }}>{timeLeft(m.created_at)}</span>
-                      {!isOwn && (
-                        <span style={{ fontSize:9,color:accent,fontWeight:700 }}>Contacter →</span>
-                      )}
-                      {isTruncated && (
-                        <span style={{ fontSize:9,color:T.sub2,fontWeight:600 }}>Voir plus</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ── MODALE DÉTAIL ANNONCE ── */}
-      {selectedMsg && (() => {
-        const m = selectedMsg;
-        const isOwn = m.user_id === user?.id;
-        const catInfo = CATEGORIES.find(c => c.id === m.categorie) || CATEGORIES[0];
-        const initials = (m.user_name||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
-        const phone = (m.phone||"").replace(/\D/g,"");
-        return (
-          <div
-            onClick={() => setSelectedMsg(null)}
-            style={{
-              position:"fixed",inset:0,background:"rgba(0,0,0,.88)",
-              zIndex:950,display:"flex",alignItems:"flex-end",justifyContent:"center",
-              backdropFilter:"blur(14px)",
-            }}>
-            <div
-              onClick={e => e.stopPropagation()}
-              style={{
-                background:`linear-gradient(160deg,${T.c1},${T.c2})`,
-                border:`1px solid ${accent}33`,
-                borderRadius:"24px 24px 0 0",
-                padding:"1.6rem 1.4rem 2.4rem",
-                width:"100%",maxWidth:520,
-                maxHeight:"88vh",overflowY:"auto",
-                boxShadow:`0 -20px 60px rgba(0,0,0,.9)`,
-                animation:"slideUp .28s cubic-bezier(.34,1.56,.64,1)",
-                color:"#dff0ff",
-                fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",
-              }}>
-
-              {/* Barre drag */}
-              <div style={{ display:"flex",justifyContent:"center",marginBottom:16 }}>
-                <div style={{ width:40,height:4,borderRadius:4,background:"rgba(255,255,255,.15)" }}/>
-              </div>
-
-              {/* Profil */}
-              <div style={{ display:"flex",alignItems:"center",gap:14,marginBottom:16,
-                background:T.c3,border:`1px solid ${T.border}`,borderRadius:16,padding:"14px" }}>
-                <div style={{
-                  width:52,height:52,borderRadius:16,flexShrink:0,
-                  background:`linear-gradient(135deg,${accent},#00bfcc)`,
-                  display:"flex",alignItems:"center",justifyContent:"center",
-                  fontWeight:900,fontSize:18,color:"#000",
-                  boxShadow:`0 0 20px ${accent}44`,
-                }}>
-                  {initials}
-                </div>
-                <div style={{ flex:1,minWidth:0 }}>
-                  <div style={{ fontWeight:800,fontSize:16,letterSpacing:"-.02em" }}>
-                    {m.user_name||"Commerçant"}
-                    {isOwn && <span style={{ fontSize:10,color:accent,marginLeft:6,fontWeight:700 }}>• Vous</span>}
-                  </div>
-                  {m.business && (
-                    <div style={{ fontSize:12,color:"#80a8c8",marginTop:2 }}>🏢 {m.business}</div>
-                  )}
-                  <div style={{ display:"flex",alignItems:"center",gap:8,marginTop:5,flexWrap:"wrap" }}>
-                    {m.pays && <span style={{ fontSize:10,color:"#4a7090" }}>{countryLabel(m.pays)||("🌍 "+m.pays)}</span>}
-                    {m.categorie && m.categorie !== "all" && (
-                      <span style={{ background:`${accent}20`,borderRadius:20,padding:"2px 8px",
-                        fontSize:9,fontWeight:700,color:accent }}>
-                        {catInfo.ic} {catInfo.label}
-                      </span>
-                    )}
-                    <span style={{ fontSize:10,color:"#4a7090" }}>🕒 {timeAgo(m.created_at)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Message complet */}
-              <div style={{ background:T.c3,border:`1px solid ${T.border}`,borderRadius:14,
-                padding:"14px 16px",marginBottom:14 }}>
-                <div style={{ fontSize:10,fontWeight:700,textTransform:"uppercase",
-                  letterSpacing:".07em",color:"#4a7090",marginBottom:8 }}>
-                  📢 Annonce complète
-                </div>
-                <div style={{ fontSize:14,lineHeight:1.75,color:"#dff0ff",whiteSpace:"pre-wrap" }}>
-                  {m.message}
-                </div>
-              </div>
-
-              {/* Expiration */}
-              <div style={{ fontSize:11,color:"#4a7090",textAlign:"center",marginBottom:16 }}>
-                ⏱ {timeLeft(m.created_at)}
-              </div>
-
-              {/* Boutons contact */}
-              {!isOwn ? (
-                <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
-                  {phone ? (
-                    <>
-                      <a href={`tel:${phone}`} style={{ textDecoration:"none" }}>
-                        <button style={{
-                          width:"100%",padding:"14px",borderRadius:14,border:"none",
-                          background:`linear-gradient(135deg,${accent},#00bfcc)`,
-                          color:"#000",fontFamily:"inherit",fontWeight:800,fontSize:14,
-                          cursor:"pointer",display:"flex",alignItems:"center",
-                          justifyContent:"center",gap:8,
-                          boxShadow:`0 6px 20px ${accent}44`,
-                        }}>
-                          📞 Appeler {m.user_name?.split(" ")[0]||""}
-                        </button>
-                      </a>
-                      <a
-                        href={`https://wa.me/${phone}?text=${encodeURIComponent(`Bonjour ${m.user_name||""}👋\n\nJ'ai vu votre annonce sur VierAfrik :\n"${(m.message||"").slice(0,120)}"\n\nJe suis intéressé(e), pouvons-nous discuter ?`)}`}
-                        target="_blank" rel="noopener noreferrer"
-                        style={{ textDecoration:"none" }}>
-                        <button style={{
-                          width:"100%",padding:"14px",borderRadius:14,border:"none",
-                          background:"#25D366",color:"#fff",fontFamily:"inherit",
-                          fontWeight:800,fontSize:14,cursor:"pointer",
-                          display:"flex",alignItems:"center",justifyContent:"center",gap:8,
-                          boxShadow:"0 6px 20px rgba(37,211,102,.4)",
-                        }}>
-                          💬 WhatsApp {m.user_name?.split(" ")[0]||""}
-                        </button>
-                      </a>
-                    </>
-                  ) : (
-                    <div style={{
-                      background:"rgba(240,176,32,.08)",border:"1px solid rgba(240,176,32,.22)",
-                      borderRadius:12,padding:"12px 14px",fontSize:12,color:"#f0b020",
-                      textAlign:"center",lineHeight:1.6,
-                    }}>
-                      ℹ️ Numéro non renseigné — ce commerçant n'a pas ajouté son téléphone à son profil.
-                    </div>
-                  )}
-                  <button
-                    onClick={() => setSelectedMsg(null)}
-                    style={{
-                      width:"100%",padding:"11px",borderRadius:12,
-                      border:"1px solid rgba(255,255,255,.1)",
-                      background:"transparent",color:"#4a7090",
-                      fontFamily:"inherit",fontWeight:600,fontSize:13,cursor:"pointer",
-                    }}>
-                    Fermer
-                  </button>
-                </div>
-              ) : (
-                <div style={{ display:"flex",gap:10 }}>
-                  <button
-                    onClick={() => { deleteMsg(m.id); setSelectedMsg(null); }}
-                    style={{
-                      flex:1,padding:"11px",borderRadius:12,border:"1px solid rgba(255,34,85,.3)",
-                      background:"rgba(255,34,85,.1)",color:"#ff2255",
-                      fontFamily:"inherit",fontWeight:700,fontSize:13,cursor:"pointer",
-                    }}>
-                    🗑️ Supprimer
-                  </button>
-                  <button
-                    onClick={() => setSelectedMsg(null)}
-                    style={{
-                      flex:1,padding:"11px",borderRadius:12,
-                      border:"1px solid rgba(255,255,255,.1)",
-                      background:"transparent",color:"#4a7090",
-                      fontFamily:"inherit",fontWeight:600,fontSize:13,cursor:"pointer",
-                    }}>
-                    Fermer
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-    </div>
-  );
-}
-  const PgReseau = () => <ReseauCommerçants user={ses} supabase={getSupa} accent={accent} toast={toast}/>;
-
-  const ACTIVITES = [
-  "Toutes","Commerce","Alimentation","Couture","Téléphonie",
-  "Transport","BTP","Santé","Éducation","Services","Agriculture",
-];
-
-// ── FeedCard — défini en dehors de CommerçantsProches pour éviter le re-mount React ──
-function FeedCard({ c, i, accent, Tc, ratingMap, onRate, doCall, doWA, onAddClient, onCreateInvoice, onPayment, CATS_VIS, CAT_IMG }) {
-  const img = c.image_url || CAT_IMG[c.category] || CAT_IMG.default;
-  const note = ratingMap[c.id] || c.rating || 0;
-  const catObj = CATS_VIS.find(x => x.id === c.category);
-  const [imgErr, setImgErr] = useState(false);
-
-  return (
-    <div style={{
-      background:`linear-gradient(135deg,${Tc.c1},${Tc.c2})`,
-      border:`1px solid ${Tc.border}`,
-      borderRadius:20,
-      overflow:"hidden",
-      marginBottom:16,
-      boxShadow:"0 4px 24px rgba(0,0,0,.5)",
-      animation:`slideUp .3s ease ${i*0.05}s both`,
-    }}>
-      {/* ── IMAGE principale ── */}
-      <div style={{ position:"relative", height:220, background:`linear-gradient(135deg,${accent}18,${Tc.c3})`, overflow:"hidden" }}>
-        {!imgErr ? (
-          <img src={img} alt={c.activite||"service"} onError={()=>setImgErr(true)}
-            style={{ width:"100%", height:"100%", objectFit:"cover", display:"block", transition:"transform .4s" }}
-            onMouseEnter={e=>e.target.style.transform="scale(1.04)"}
-            onMouseLeave={e=>e.target.style.transform="scale(1)"}
-          />
-        ) : (
-          <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:64 }}>
-            {catObj?.emoji || "🌍"}
-          </div>
-        )}
-        {catObj && catObj.id && (
-          <div style={{ position:"absolute", top:12, left:12, background:"rgba(0,0,0,.72)", backdropFilter:"blur(6px)", borderRadius:20, padding:"4px 10px", fontSize:11, fontWeight:700, color:"#fff", display:"flex", alignItems:"center", gap:5 }}>
-            {catObj.emoji} {catObj.label}
-          </div>
-        )}
-        {c.ville && (
-          <div style={{ position:"absolute", top:12, right:12, background:"rgba(0,0,0,.72)", backdropFilter:"blur(6px)", borderRadius:20, padding:"4px 10px", fontSize:10, color:"#fff", fontWeight:600 }}>
-            📍 {c.ville}
-          </div>
-        )}
-        <div style={{ position:"absolute", bottom:0, left:0, right:0, height:80, background:"linear-gradient(to top,rgba(5,9,15,1),transparent)" }}/>
-        <div style={{ position:"absolute", bottom:12, left:14, right:14 }}>
-          <div style={{ fontWeight:900, fontSize:17, color:"#fff", letterSpacing:"-.02em", textShadow:"0 2px 8px rgba(0,0,0,.8)", lineHeight:1.2 }}>
-            {c.business || c.nom || "Commerçant"}
-          </div>
-          <div style={{ fontSize:12, color:accent, fontWeight:700, marginTop:2, textShadow:"0 1px 4px rgba(0,0,0,.9)" }}>
-            {c.activite || "Service"}
-          </div>
-        </div>
-      </div>
-      {/* ── INFOS + ACTIONS ── */}
-      <div style={{ padding:"14px 16px" }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
-          <div style={{ display:"flex", gap:3 }}>
-            {[1,2,3,4,5].map(n=>(
-              <button key={n} onClick={()=>onRate(c.id,n)}
-                style={{ background:"none", border:"none", cursor:"pointer", fontSize:16, padding:0, color:n<=note?Tc.gold:Tc.c4, transition:"color .15s" }}>★</button>
-            ))}
-          </div>
-          {note>0 && <span style={{ fontSize:11, color:Tc.gold, fontWeight:700 }}>{note}/5 ⭐</span>}
-        </div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:7, marginBottom:12 }}>
-          {[
-            { ic:"📞", label:"Appeler",  col:Tc.gr,    fn:()=>doCall(c.phone) },
-            { ic:"💬", label:"WhatsApp", col:"#25D366", fn:()=>doWA(c.phone,c.business||c.nom,c.activite) },
-            { ic:"➕", label:"Client",   col:Tc.blue,   fn:()=>onAddClient?.({name:c.business||c.nom||"",phone:c.phone||"",cat:c.activite||"Commerce",status:"active"}) },
-            { ic:"🧾", label:"Facture",  col:Tc.gold,   fn:()=>onCreateInvoice?.({clientName:c.business||c.nom||"",phone:c.phone||""}) },
-          ].map(b=>(
-            <button key={b.label} onClick={b.fn} style={{
-              padding:"9px 4px", borderRadius:11, border:`1px solid ${b.col}44`,
-              background:`${b.col}15`, color:b.col, cursor:"pointer",
-              fontFamily:"inherit", fontWeight:700, fontSize:9,
-              display:"flex", flexDirection:"column", alignItems:"center", gap:3, transition:"all .18s",
-            }}
-              onMouseEnter={e=>{e.currentTarget.style.background=`${b.col}28`;e.currentTarget.style.transform="translateY(-1px)";}}
-              onMouseLeave={e=>{e.currentTarget.style.background=`${b.col}15`;e.currentTarget.style.transform="translateY(0)";}}>
-              <span style={{ fontSize:17 }}>{b.ic}</span>
-              <span>{b.label}</span>
-            </button>
-          ))}
-        </div>
-        {c.phone && (
-          <button onClick={()=>onPayment?.({phone:c.phone,name:c.business||c.nom})}
-            style={{ width:"100%", padding:"9px", borderRadius:10, border:`1px solid ${Tc.teal}44`, background:`${Tc.teal}10`, color:Tc.teal, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-            📱 Payer via Mobile Money
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════
-//  🗺️  RÉSEAU VISUEL — Feed type Instagram/TikTok version business
-//  "Je vois → je choisis → je contacte"
-// ══════════════════════════════════════════════════════════════
-function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddClient, onCreateInvoice, onPayment }) {
-
-  const Tc = {
-    c1:"#05090f",c2:"#08111d",c3:"#0d1828",c4:"#121f34",
-    border:"rgba(0,210,120,0.08)",bhi:"rgba(0,210,120,0.22)",
-    gr:"#00d478",teal:"#00bfcc",blue:"#1a78ff",gold:"#f0b020",
-    orange:"#ff5a18",red:"#ff2255",purple:"#9060ff",
-    text:"#dff0ff",sub:"#4a7090",sub2:"#80a8c8",ink:"#000",
-  };
-
-  // ── Catégories alignées avec Action Rapide ──
-  const CATS_VIS = [
-    {id:"",       label:"Tous",         emoji:"🌍"},
-    {id:"services",    label:"Services",    emoji:"🧹"},
-    {id:"resto",       label:"Restauration",emoji:"🍽️"},
-    {id:"beaute",      label:"Beauté",      emoji:"💅"},
-    {id:"transport",   label:"Transport",   emoji:"🚛"},
-    {id:"reparation",  label:"Réparation",  emoji:"🔧"},
-    {id:"batiment",    label:"Bâtiment",    emoji:"🏗️"},
-    {id:"sante",       label:"Santé",       emoji:"🏥"},
-    {id:"business",    label:"Business",    emoji:"💼"},
-  ];
-
-  // Liste plate de toutes les villes connues (filtre simple — voir Stage 2 pour un filtre pays+ville structuré)
-  const VILLES_VIS = Array.from(new Set(COUNTRIES.flatMap(c => c.cities))).sort();
-
-  // Images de fallback par catégorie (Unsplash)
-  const CAT_IMG = {
-    services:   "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=600&q=75",
-    resto:      "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&q=75",
-    beaute:     "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=600&q=75",
-    transport:  "https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?w=600&q=75",
-    reparation: "https://images.unsplash.com/photo-1621905251189-08b45d6a269e?w=600&q=75",
-    batiment:   "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=600&q=75",
-    sante:      "https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=600&q=75",
-    business:   "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=600&q=75",
-    default:    "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=600&q=75",
-  };
-
-  const [posts,       setPosts]       = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [filterCat,   setFilterCat]   = useState("");
-  const [filterVille, setFilterVille] = useState("");
-  const [ratingMap,   setRatingMap]   = useState({});   // id → note locale
-  const [myProfile,   setMyProfile]   = useState(null);
-  const [editOpen,    setEditOpen]    = useState(false);
-  const [editForm,    setEditForm]    = useState({ activite:"", ville:"", pays:normalizeLegacyCountry(user?.country)||"CI", visible:true, phone:"", image_url:"", category:"" });
-  const [saving,      setSaving]      = useState(false);
-  const [previewImg,  setPreviewImg]  = useState(null);
-
-  // ── Charger les profils ──
-  const load = useCallback(async () => {
-    if (!supabase) return;
-    setLoading(true);
-    try {
-      const s = await supabase();
-      let q = s.from("commercants_profils").select("*").eq("visible", true).order("created_at",{ascending:false}).limit(80);
-      if (filterCat)   q = q.eq("category", filterCat);
-      if (filterVille) q = q.eq("ville", filterVille);
-      const { data } = await q;
-      setPosts(data || []);
-      const moi = (data||[]).find(c => c.id === user?.id);
-      if (moi) { setMyProfile(moi); setEditForm({ activite:moi.activite||"", ville:moi.ville||"", pays:normalizeLegacyCountry(moi.pays)||"CI", visible:moi.visible!==false, phone:moi.phone||"", image_url:moi.image_url||"", category:moi.category||"" }); }
-    } catch(e) { setPosts([]); }
-    finally { setLoading(false); }
-  }, [filterCat, filterVille]);
-
-  useEffect(() => { load(); }, [filterCat, filterVille]);
-
-  // ── Sauvegarder profil ──
-  const saveProfile = async () => {
-    if (!editForm.activite.trim()) { toast?.("⚠️ Précisez votre activité","warn"); return; }
-    setSaving(true);
-    try {
-      const s = await supabase();
-      const row = { id:user?.id, nom:user?.name||"Commerçant", business:user?.business||"", activite:editForm.activite.trim(), ville:editForm.ville.trim(), pays:editForm.pays||normalizeLegacyCountry(user?.country)||"CI", visible:editForm.visible, phone:editForm.phone||"", image_url:previewImg||editForm.image_url||"", category:editForm.category||"" };
-      if (myProfile) { await s.from("commercants_profils").update(row).eq("id",user?.id); }
-      else           { await s.from("commercants_profils").insert(row); }
-      setMyProfile(row); setEditOpen(false); await load();
-      toast?.("✅ Profil visible dans le réseau !","ok");
-    } catch(e) { toast?.("❌ Erreur sauvegarde","err"); }
-    finally { setSaving(false); }
-  };
-
-  // ── Image upload avec compression ──
-  const handleImg = (e) => {
-    const f = e.target.files[0]; if (!f) return;
-    const img = new Image();
-    const url = URL.createObjectURL(f);
-    img.onload = () => {
-      const MAX=800;
-      let w=img.width,h=img.height;
-      if(w>MAX||h>MAX){const r=Math.min(MAX/w,MAX/h);w=Math.round(w*r);h=Math.round(h*r);}
-      const canvas=document.createElement("canvas");
-      canvas.width=w;canvas.height=h;
-      canvas.getContext("2d").drawImage(img,0,0,w,h);
-      const compressed=canvas.toDataURL("image/jpeg",0.72);
-      URL.revokeObjectURL(url);
-      setPreviewImg(compressed);
-    };
-    img.src=url;
-  };
-
-  // ── Noter ──
-  const ratePost = (id, note) => {
-    setRatingMap(m => ({...m, [id]:note}));
-    toast?.(`⭐ Note ${note}/5 enregistrée !`,"ok");
-  };
-
-  // ── Actions contact ──
-  const doCall = (phone) => { if (!phone) { toast?.("📞 Numéro non disponible","warn"); return; } window.open(`tel:${(phone||"").replace(/\D/g,"")}`, "_blank"); };
-  const doWA   = (p, name, act) => { const ph=(p||"").replace(/\D/g,""); if (!ph) { toast?.("💬 Numéro non disponible","warn"); return; } window.open(`https://wa.me/${ph}?text=${encodeURIComponent(`Bonjour ${name||""} 👋 Je vous ai trouvé sur VierAfrik pour ${act||"votre activité"}. Êtes-vous disponible ?`)}`, "_blank"); };
-
-  const IS2 = { width:"100%", padding:"10px 14px", background:Tc.c3, border:`1px solid ${Tc.border}`, borderRadius:11, color:Tc.text, fontFamily:"inherit", fontSize:13, outline:"none", marginTop:4 };
-
-  // ── StarRating ──
-  const StarRating = ({ id, current }) => (
-    <div style={{ display:"flex", gap:3 }}>
-      {[1,2,3,4,5].map(n => (
-        <button key={n} onClick={() => ratePost(id, n)}
-          style={{ background:"none", border:"none", cursor:"pointer", fontSize:16, padding:0, color: n<=(current||0) ? Tc.gold : Tc.c4, transition:"color .15s" }}>
-          ★
-        </button>
-      ))}
-    </div>
-  );
-
-  // ── Carte feed — voir FeedCard défini en dehors du composant ──
-
-  return (
-    <div style={{ fontFamily:"'Inter','Segoe UI',system-ui,sans-serif", color:Tc.text }}>
-      {/* ── HEADER ── */}
-      <div style={{ textAlign:"center", marginBottom:"1.4rem" }}>
-        <div style={{ fontWeight:900, fontSize:24, letterSpacing:"-.04em", marginBottom:4 }}>
-          🗺️ Réseau <span style={{ color:accent }}>VierAfrik</span>
-        </div>
-        <div style={{ fontSize:12, color:Tc.sub2 }}>
-          Je vois → je choisis → je <strong style={{ color:Tc.gr }}>contacte</strong>
-        </div>
-      </div>
-
-      {/* ── MON PROFIL ── */}
-      <div style={{ background:`linear-gradient(135deg,${accent}10,${Tc.c1})`, border:`2px solid ${accent}44`, borderRadius:20, padding:"1.4rem", marginBottom:20 }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:editOpen?16:0 }}>
-          <div style={{ fontWeight:800, fontSize:13 }}>
-            {myProfile ? "✅ Mon profil est visible" : "👤 Rejoindre le réseau"}
-          </div>
-          <button onClick={()=>setEditOpen(o=>!o)} style={{ background:editOpen?`${accent}20`:Tc.c2, border:`1px solid ${accent}44`, borderRadius:9, cursor:"pointer", color:accent, fontSize:11, fontWeight:700, padding:"6px 14px", fontFamily:"inherit" }}>
-            {editOpen ? "✕ Fermer" : myProfile ? "✏️ Modifier" : "➕ Rejoindre"}
-          </button>
-        </div>
-        {!editOpen && myProfile && (
-          <div style={{ fontSize:12, color:Tc.sub2, marginTop:6 }}>{user?.business||user?.name} · {myProfile.activite} · {myProfile.ville||"—"}</div>
-        )}
-        {editOpen && (
-          <div>
-            {/* Photo profil */}
-            <label style={{ display:"block", cursor:"pointer", marginBottom:12 }}>
-              <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:".06em", color:Tc.sub, marginBottom:5 }}>📷 Photo de votre commerce</div>
-              <input type="file" accept="image/*" onChange={handleImg} style={{ display:"none" }}/>
-              {previewImg||editForm.image_url ? (
-                <img src={previewImg||editForm.image_url} alt="preview" style={{ width:"100%", height:140, objectFit:"cover", borderRadius:14, border:`2px solid ${accent}55` }}/>
-              ) : (
-                <div style={{ width:"100%", height:110, borderRadius:14, border:`2px dashed ${Tc.border}`, background:Tc.c2, display:"flex", alignItems:"center", justifyContent:"center", gap:8, color:Tc.sub, fontSize:12, fontWeight:600 }}>
-                  📷 Ajouter une photo
-                </div>
-              )}
-            </label>
-            <div style={{ marginBottom:10 }}>
-              <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Activité *</label>
-              <input style={IS2} placeholder="Coiffure, Épicerie…" value={editForm.activite} onChange={e=>setEditForm(f=>({...f,activite:e.target.value}))}/>
-            </div>
-            <div style={{ marginBottom:10 }}>
-              <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Localisation</label>
-              <LocationPicker
-                theme={Tc}
-                countryCode={editForm.pays}
-                city={editForm.ville}
-                onChange={({countryCode,city})=>setEditForm(f=>({...f,pays:countryCode,ville:city}))}
-              />
-            </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
-              <div>
-                <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Catégorie</label>
-                <select style={IS2} value={editForm.category} onChange={e=>setEditForm(f=>({...f,category:e.target.value}))}>
-                  <option value="">Sélectionner…</option>
-                  {CATS_VIS.filter(c=>c.id).map(c=><option key={c.id} value={c.id}>{c.emoji} {c.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Téléphone</label>
-                <input type="tel" style={IS2} placeholder="+225 07 000 0000" value={editForm.phone} onChange={e=>setEditForm(f=>({...f,phone:e.target.value}))}/>
-              </div>
-            </div>
-            {/* Toggle visibilité */}
-            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
-              <div onClick={()=>setEditForm(f=>({...f,visible:!f.visible}))} style={{ width:38, height:22, borderRadius:11, cursor:"pointer", background:editForm.visible?accent:Tc.c3, border:`1px solid ${editForm.visible?accent:Tc.border}`, position:"relative", transition:"all .2s", flexShrink:0 }}>
-                <div style={{ width:18, height:18, borderRadius:"50%", background:"#fff", position:"absolute", top:1, left:editForm.visible?18:2, transition:"left .2s" }}/>
-              </div>
-              <span style={{ fontSize:12, color:Tc.sub2 }}>{editForm.visible ? "Visible dans le réseau" : "Masqué"}</span>
-            </div>
-            <button onClick={saveProfile} disabled={saving} style={{ width:"100%", padding:"12px", borderRadius:12, border:"none", background:saving?Tc.c3:`linear-gradient(135deg,${accent},${Tc.teal})`, color:saving?Tc.sub:Tc.ink, fontFamily:"inherit", fontWeight:900, fontSize:14, cursor:saving?"not-allowed":"pointer", boxShadow:saving?"none":`0 6px 20px ${accent}44` }}>
-              {saving ? "⏳ Sauvegarde…" : myProfile ? "💾 Mettre à jour" : "✅ Rejoindre le réseau"}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* ── FILTRES CATÉGORIES — scroll horizontal ── */}
-      <div style={{ overflowX:"auto", display:"flex", gap:8, paddingBottom:6, marginBottom:12, scrollbarWidth:"none" }}>
-        {CATS_VIS.map(c => (
-          <button key={c.id} onClick={()=>setFilterCat(c.id)}
-            style={{ flexShrink:0, padding:"6px 14px", borderRadius:20, border:`1px solid ${filterCat===c.id?accent:Tc.border}`, background:filterCat===c.id?`${accent}20`:Tc.c2, color:filterCat===c.id?accent:Tc.sub2, cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:11, whiteSpace:"nowrap", transition:"all .18s" }}>
-            {c.emoji} {c.label}
-          </button>
-        ))}
-      </div>
-
-      {/* ── FILTRE VILLE ── */}
-      <div style={{ display:"flex", gap:8, marginBottom:16, alignItems:"center" }}>
-        <select value={filterVille} onChange={e=>setFilterVille(e.target.value)}
-          style={{ flex:1, padding:"9px 12px", background:Tc.c3, border:`1px solid ${Tc.border}`, borderRadius:11, color:Tc.text, fontFamily:"inherit", fontSize:12, outline:"none" }}>
-          <option value="">📍 Toutes les villes</option>
-          {VILLES_VIS.filter(v=>v).map(v=><option key={v}>{v}</option>)}
-        </select>
-        <button onClick={()=>{setFilterCat("");setFilterVille("");}}
-          style={{ padding:"9px 14px", borderRadius:11, border:`1px solid ${Tc.border}`, background:Tc.c2, color:Tc.sub2, cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:600, whiteSpace:"nowrap" }}>
-          ✕ Reset
-        </button>
-      </div>
-
-      {/* ── FEED ── */}
-      {loading ? (
-        <div style={{ textAlign:"center", padding:"4rem", color:Tc.sub }}>
-          <div style={{ fontSize:36, marginBottom:12 }}>⏳</div>
-          <div>Chargement du réseau…</div>
-        </div>
-      ) : posts.filter(c=>c.id!==user?.id).length === 0 ? (
-        <div style={{ textAlign:"center", padding:"3rem", background:Tc.c1, border:`1px solid ${Tc.border}`, borderRadius:20 }}>
-          <div style={{ fontSize:56, marginBottom:12 }}>🌍</div>
-          <div style={{ fontWeight:800, fontSize:16, marginBottom:6 }}>Sois le premier !</div>
-          <div style={{ fontSize:12, color:Tc.sub2, marginBottom:16, lineHeight:1.5 }}>
-            Rejoins le réseau pour être visible par des milliers d'entrepreneurs africains.
-          </div>
-          <button onClick={()=>setEditOpen(true)}
-            style={{ padding:"11px 22px", borderRadius:12, border:"none", background:`linear-gradient(135deg,${accent},${Tc.teal})`, color:Tc.ink, cursor:"pointer", fontFamily:"inherit", fontWeight:800, fontSize:13 }}>
-            ➕ Rejoindre le réseau
-          </button>
-        </div>
-      ) : (
-        <div>
-          <div style={{ fontSize:11, color:Tc.sub, marginBottom:12, fontWeight:600 }}>
-            {posts.filter(c=>c.id!==user?.id).length} commerçant{posts.filter(c=>c.id!==user?.id).length>1?"s":""} · Réseau VierAfrik
-          </div>
-          {posts.filter(c=>c.id!==user?.id).map((c,i)=><FeedCard key={c.id||i} c={c} i={i} accent={accent} Tc={Tc} ratingMap={ratingMap} onRate={ratePost} doCall={doCall} doWA={doWA} onAddClient={onAddClient} onCreateInvoice={onCreateInvoice} onPayment={onPayment} CATS_VIS={CATS_VIS} CAT_IMG={CAT_IMG}/>)}
-        </div>
-      )}
-    </div>
-  );
-}
-  const PgCommProches = () => {
-    const [onglet, setOnglet] = useState("feed"); // "feed" | "forum"
-    return (
-      <div>
-        {/* ── ONGLETS ── */}
-        <div style={{display:"flex",gap:0,background:T.c2,borderRadius:14,padding:4,marginBottom:20,border:`1px solid ${T.border}`}}>
-          {[
-            {id:"feed",  ic:"🗺️", label:"Réseau visuel"},
-            {id:"forum", ic:"🤝", label:"Forum annonces"},
-          ].map(o=>(
-            <button key={o.id} onClick={()=>setOnglet(o.id)} style={{
-              flex:1,padding:"10px 8px",borderRadius:11,border:"none",
-              background:onglet===o.id?`linear-gradient(135deg,${accent},${T.teal})`:"transparent",
-              color:onglet===o.id?T.ink:T.sub2,
-              fontFamily:"inherit",fontWeight:800,fontSize:12,cursor:"pointer",
-              transition:"all .22s cubic-bezier(.34,1.56,.64,1)",
-              display:"flex",alignItems:"center",justifyContent:"center",gap:6,
-            }}>
-              {o.ic} {o.label}
-            </button>
-          ))}
-        </div>
-        {/* ── CONTENU ── */}
-        {onglet==="feed"  && <CommerçantsProches user={ses} supabase={getSupa} accent={accent} toast={toast} onAddClient={(data)=>{setFm({...data,_fromReseau:true});setMdl("cli");}} onCreateInvoice={(data)=>{setFm({...data,items:[{id:xid(),name:"Service",qty:1,price:0}]});setMdl("inv");}} onPayment={(data)=>{setFm({...data});setMdl("mm");}}/>}
-        {onglet==="forum" && <ReseauCommerçants  user={ses} supabase={getSupa} accent={accent} toast={toast}/>}
-      </div>
-    );
-  };
 
   // ── FIN PgActionRapide ──
 
@@ -8217,7 +7140,6 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
     <CoachIA
       ses={ses}
       accent={accent}
-      txs={txs}
       clis={clis}
       invs={invs}
       sales={sales}
@@ -8226,10 +7148,10 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
       gPct={gPct}
       goal={goal}
       setPage={setPage}
-      fmtf={fmtf}
+      plan={activePlan}
     />
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ), [ses.id, accent, txs, clis, invs, sales, exps, profit, gPct, goal]);
+  ), [ses.id, accent, clis, invs, sales, exps, profit, gPct, goal, activePlan]);
 
 
 
@@ -8253,7 +7175,10 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
       case "ambass": return <PgAmbassadeur/>;
       case "avis":   return <PgAvis/>;
       case "action": return <PgActionRapide/>;
-      case "reseau": return <PgCommProches/>;
+      case "reseau": return <NetworkShell ses={ses} accent={accent} toast={toast} getSupa={getSupa} plan={activePlan}
+        onAddClient={(data)=>{setFm({...data,_fromReseau:true});setMdl("cli");}}
+        onCreateInvoice={(data)=>{setFm({...data,items:[{id:xid(),name:"Service",qty:1,price:0}]});setMdl("inv");}}
+        onPayment={(data)=>{setFm({...data});setMdl("mm");}}/>;
       case "carte":  return <PgCarteVisite/>;
       case "logo":   return <PgLogo/>;
       case "qr":     return <PgSmartQR/>;
@@ -8275,6 +7200,9 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
         @keyframes toastBar{from{opacity:1}to{opacity:0}}
         @keyframes toastProgress{from{width:100%}to{width:0%}}
         @keyframes flashGreen{0%{box-shadow:0 0 0 0 rgba(0,212,120,.7),inset 0 0 0 0 rgba(0,212,120,.0)}40%{box-shadow:0 0 0 8px rgba(0,212,120,.0),inset 0 0 20px 4px rgba(0,212,120,.18)}100%{box-shadow:0 0 0 0 rgba(0,212,120,0),inset 0 0 0 0 rgba(0,212,120,0)}}
+        @keyframes skeletonShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+        @keyframes coachGradientDrift{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+        @keyframes coachFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
         *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
         html{scroll-behavior:smooth}
         body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
@@ -8292,12 +7220,14 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
         .mobile-nav{display:none}
         .pg-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
         .pg-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+        .pg-grid-kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
         .fade-in{animation:slideUp .3s ease both}
         @media(max-width:640px){
           .desktop-nav{display:none!important}
           .mobile-nav{display:flex!important}
           .pg-grid-2{grid-template-columns:1fr!important}
           .pg-grid-3{grid-template-columns:1fr 1fr!important}
+          .pg-grid-kpi{grid-template-columns:1fr 1fr!important}
           .hide-mobile{display:none!important}
         }
       `}</style>
@@ -8323,14 +7253,11 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
           {NAV.map(n=><TabBtn key={n.id} {...n}/>)}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
-          {/* v34 — Badge progression Free (invisible pour admin/premium) */}
+          {/* Raccourci plan Free — les limites réelles s'affichent sur chaque page (clients/factures/transactions) */}
           {!isAdmin&&!isSubActive&&(
-            <button onClick={()=>setPage("plans")} title={`${usageCount}/${FREE_LIMIT} actions`}
-              style={{background:"none",border:`1px solid ${usageCount>=FREE_LIMIT?T.red:T.border}`,borderRadius:20,padding:"3px 8px",cursor:"pointer",display:"flex",alignItems:"center",gap:5,color:usageCount>=FREE_LIMIT?T.red:T.sub,fontSize:10,fontWeight:700,flexShrink:0}}>
-              <span style={{display:"inline-block",width:24,height:3,background:T.c3,borderRadius:3,overflow:"hidden"}}>
-                <span style={{display:"block",height:"100%",width:`${Math.min(100,usageCount/FREE_LIMIT*100)}%`,background:usageCount>=FREE_LIMIT?T.red:T.gr,borderRadius:3,transition:"width .3s"}}/>
-              </span>
-              {usageCount}/{FREE_LIMIT}
+            <button onClick={()=>setPage("plans")} title="Voir les plans"
+              style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,padding:"3px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:5,color:T.sub,fontSize:10,fontWeight:700,flexShrink:0}}>
+              🌱 Free
             </button>
           )}
           <div style={{position:"relative"}}>
@@ -8601,18 +7528,22 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
         </div>
       </Modal>
 
-      {/* ── v34 UPGRADE WALL — affiché après 5 actions Free ── */}
+      {/* ── UPGRADE WALL — affiché quand une limite Free précise est atteinte ── */}
       {showUpgradeWall&&(
         <div onClick={()=>setShowUpgradeWall(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:980,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(18px)",padding:"16px"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:`linear-gradient(160deg,${T.c1},${T.c2})`,border:`2px solid ${T.gr}55`,borderRadius:28,padding:"2rem 1.8rem",width:"100%",maxWidth:420,textAlign:"center",boxShadow:`0 40px 120px rgba(0,0,0,.95)`,animation:"pop .3s cubic-bezier(.34,1.56,.64,1)"}}>
             <div style={{fontSize:56,marginBottom:10}}>🚀</div>
             <div style={{fontWeight:900,fontSize:22,letterSpacing:"-.04em",marginBottom:6,color:T.gr}}>Tu maîtrises VierAfrik !</div>
             <div style={{fontSize:13,color:T.sub2,lineHeight:1.7,marginBottom:20}}>
-              Tu as utilisé tes <strong style={{color:T.text}}>5 actions gratuites</strong>.<br/>
+              {({
+                tx:  <>Tu as atteint la limite de <strong style={{color:T.text}}>{PLANS.free.maxTx} transactions</strong> du plan Free.</>,
+                cli: <>Tu as atteint la limite de <strong style={{color:T.text}}>{PLANS.free.maxCli} clients</strong> du plan Free.</>,
+                inv: <>Tu as atteint la limite de <strong style={{color:T.text}}>{PLANS.free.maxInv} factures</strong> du plan Free.</>,
+              })[showUpgradeWall] || <>Tu as atteint la limite du plan Free.</>}<br/>
               Passe en <strong style={{color:T.gr}}>Pro</strong> pour continuer sans limite.
             </div>
             <div style={{background:T.c3,borderRadius:16,padding:"1rem",marginBottom:20,textAlign:"left"}}>
-              {[["💸","Transactions illimitées"],["🧾","Factures PDF pro"],["📱","Mobile Money"],["🤖","Coach IA 24h/24"],["👥","Clients & employés illimités"],["🌍","Réseau VierAfrik"]].map(([ic,lb])=>(
+              {[["💸","Transactions illimitées"],["🧾","Factures PDF pro"],["📱","Mobile Money"],["🤖","Coach IA 24h/24"],["👥","Clients illimités · jusqu'à 5 employés"],["🌍","Réseau VierAfrik"]].map(([ic,lb])=>(
                 <div key={lb} style={{display:"flex",alignItems:"center",gap:9,padding:"5px 0",fontSize:12,color:T.text}}>
                   <span style={{fontSize:16,flexShrink:0}}>{ic}</span><span>{lb}</span>
                   <span style={{marginLeft:"auto",color:T.gr,fontWeight:700,fontSize:11}}>✓</span>
