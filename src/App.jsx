@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { COUNTRIES, getCitiesForCountry, normalizeLegacyCountry, countryLabel } from "./data/locations.js";
+import LocationPicker from "./components/LocationPicker.jsx";
+import { useMediaQuery, useViewport, BREAKPOINTS } from "./hooks/useMediaQuery.js";
 
 // ══════════════════════════════════════════════════════
 // App v34 — Freemium découverte (base v31 intacte) :
@@ -264,7 +267,7 @@ const fmtf=n=>fmtPrice(n, DEFAULT_CURRENCY);
 
 const CATS_S=["Commerce","Services","Alimentation","Agriculture","Transport","BTP","Santé","Éducation","Divers"];
 const CATS_E=["Salaires","Loyer","Transport","Marketing","Matières premières","Équipement","Communication","Divers"];
-const PAYS=["🇨🇮 Côte d'Ivoire","🇸🇳 Sénégal","🇬🇭 Ghana","🇨🇲 Cameroun","🇳🇬 Nigeria","🇲🇱 Mali","🇧🇫 Burkina Faso","🇹🇬 Togo","🇧🇯 Bénin","🇬🇳 Guinée"];
+// PAYS / villes — voir src/data/locations.js (COUNTRIES) — source unique pays/villes de toute l'app
 // ── Source unique des opérateurs Mobile Money ──
 // Utilisé par : dashboard (modal pay + modal mm) + PublicPayPage
 const MM=[
@@ -489,11 +492,11 @@ async function seed(uid){
     {id:xid(),user_id:uid,type:"sale",   amount:540000, category:"Alimentation",who:"Marché Central",  date:`${lm}-08`,note:""},
   ];
   const cliData=[
-    {id:xid(),user_id:uid,name:"Ama Owusu",     phone:"+233240001111",email:"ama@email.com",    country:PAYS[2],category:"Commerce",    status:"active",  revenue:1730000},
-    {id:xid(),user_id:uid,name:"TechLagos Inc", phone:"+234800002222",email:"tech@lagos.ng",    country:PAYS[4],category:"Services",    status:"active",  revenue:3950000},
-    {id:xid(),user_id:uid,name:"Marché Central",phone:"+225070003333",email:"",                 country:PAYS[0],category:"Alimentation",status:"inactive",revenue:1215000},
-    {id:xid(),user_id:uid,name:"Fatou Diallo",  phone:"+221770004444",email:"fatou@sn.com",     country:PAYS[1],category:"Commerce",    status:"active",  revenue:1270000},
-    {id:xid(),user_id:uid,name:"StartupDakar",  phone:"+221780005555",email:"hello@startup.sn", country:PAYS[1],category:"Services",    status:"active",  revenue:1100000},
+    {id:xid(),user_id:uid,name:"Ama Owusu",     phone:"+233240001111",email:"ama@email.com",    country:"GH",city:"Accra", category:"Commerce",    status:"active",  revenue:1730000},
+    {id:xid(),user_id:uid,name:"TechLagos Inc", phone:"+234800002222",email:"tech@lagos.ng",    country:"NG",city:"Lagos", category:"Services",    status:"active",  revenue:3950000},
+    {id:xid(),user_id:uid,name:"Marché Central",phone:"+225070003333",email:"",                 country:"CI",city:"Abidjan",category:"Alimentation",status:"inactive",revenue:1215000},
+    {id:xid(),user_id:uid,name:"Fatou Diallo",  phone:"+221770004444",email:"fatou@sn.com",     country:"SN",city:"Dakar", category:"Commerce",    status:"active",  revenue:1270000},
+    {id:xid(),user_id:uid,name:"StartupDakar",  phone:"+221780005555",email:"hello@startup.sn", country:"SN",city:"Dakar", category:"Services",    status:"active",  revenue:1100000},
   ];
   const invData=[
     {id:xid(),user_id:uid,number:`VAF-${y}-0001`,client_name:"TechLagos Inc",  phone:"+234800002222",total:1850000,subtotal:1850000,tax:0,status:"paid",   issued:d(12),due:d(28),items:JSON.stringify([{id:xid(),name:"Consulting mensuel",qty:1,price:1850000,line:1850000}]),notes:""},
@@ -740,6 +743,7 @@ function AuthPage({onLogin}){
               goal:2500000,
               phone:f.phone||"",
               country:f.country||"",
+              city:f.city||"",
               ref_code:refCode,
               ref_by:new URLSearchParams(window.location.search).get("ref")||"",
             }
@@ -776,6 +780,7 @@ function AuthPage({onLogin}){
           plan:"free",accent:T.gr,goal:2500000,
           phone:user.user_metadata?.phone||f.phone||"",
           country:user.user_metadata?.country||f.country||"",
+          city:user.user_metadata?.city||f.city||"",
           refCode:user.user_metadata?.ref_code||refCode,
           refBy:user.user_metadata?.ref_by||refBy,
         };
@@ -810,6 +815,7 @@ function AuthPage({onLogin}){
         goal:user.user_metadata?.goal||2500000,
         phone:user.user_metadata?.phone||"",
         country:user.user_metadata?.country||"",
+        city:user.user_metadata?.city||"",
         refCode:user.user_metadata?.ref_code||(user.email?.split("@")[0]?.toLowerCase().replace(/[^a-z0-9]/g,"")||user.id.slice(0,8)),
         refBy:user.user_metadata?.ref_by||"",
       };
@@ -878,6 +884,14 @@ function AuthPage({onLogin}){
                     ch={<input style={AUTH_IS} placeholder="Prénom Nom" value={f.name||""} onChange={s("name")}/>}/>
                   <AuthField l={t("businessName")}
                     ch={<input style={AUTH_IS} placeholder="Nom de mon entreprise" value={f.business||""} onChange={s("business")}/>}/>
+                  <AuthField l="Localisation" hint="Optionnel — utilisé pour le Réseau et tes clients"
+                    ch={<LocationPicker
+                      theme={T}
+                      countryCode={f.country||""}
+                      city={f.city||""}
+                      onChange={({countryCode,city})=>setF(p=>({...p,country:countryCode,city}))}
+                      required
+                    />}/>
                 </>
               )}
 
@@ -2405,6 +2419,7 @@ export default function App(){
           goal:ns.goal,
           phone:ns.phone,
           country:ns.country,
+          city:ns.city,
           currency:ns.currency||DEFAULT_CURRENCY,
         }}).catch(e=>console.warn("[updSes] updateUser échoué (non bloquant):",e));
       }).catch(e=>console.warn("[updSes] getSupa échoué (non bloquant):",e));
@@ -3417,7 +3432,7 @@ function Dashboard({ses,logout,updSes}){
         // Normaliser clients
         setClis(rawClis.map(r=>({
           id:r.id,uid:r.user_id,name:r.name,phone:r.phone||"",email:r.email||"",
-          pays:r.country||PAYS[0],cat:r.category||"Commerce",status:r.status||"active",ca:parseFloat(r.revenue)||0
+          pays:normalizeLegacyCountry(r.country)||"CI",ville:r.city||"",cat:r.category||"Commerce",status:r.status||"active",ca:parseFloat(r.revenue)||0
         })));
         // Normaliser factures
         setInvs(rawInvs.map(r=>({
@@ -3442,7 +3457,7 @@ function Dashboard({ses,logout,updSes}){
             supaSelect("invoices",uid),
           ]);
           setTxs(t2.map(r=>({id:r.id,uid:r.user_id,type:r.type,amount:parseFloat(r.amount)||0,cat:r.category||"Commerce",who:r.who||"",date:r.date||today(),note:r.note||""})));
-          setClis(c2.map(r=>({id:r.id,uid:r.user_id,name:r.name,phone:r.phone||"",email:r.email||"",pays:r.country||PAYS[0],cat:r.category||"Commerce",status:r.status||"active",ca:parseFloat(r.revenue)||0})));
+          setClis(c2.map(r=>({id:r.id,uid:r.user_id,name:r.name,phone:r.phone||"",email:r.email||"",pays:normalizeLegacyCountry(r.country)||"CI",ville:r.city||"",cat:r.category||"Commerce",status:r.status||"active",ca:parseFloat(r.revenue)||0})));
           setInvs(i2.map(r=>({id:r.id,uid:r.user_id,num:r.number||"",clientId:r.client_id||"",clientName:r.client_name||"",phone:r.phone||"",total:parseFloat(r.total)||0,sub:parseFloat(r.subtotal)||0,tax:parseFloat(r.tax)||0,currency:r.currency||DEFAULT_CURRENCY,status:r.status||"pending",issued:r.issued||today(),due:r.due||"",items:typeof r.items==="string"?JSON.parse(r.items||"[]"):r.items||[],notes:r.notes||"",payStatus:r.status==="paid"?"paid":"unpaid",payRef:"",payProv:"",amtPaid:parseFloat(r.amt_paid)||0})));
           setLoading(false);
           return;
@@ -3798,7 +3813,7 @@ function Dashboard({ses,logout,updSes}){
               user_id: uid, // clé Supabase — cohérence avec .filter(c => c.user_id === uid)
               name: txObj.who,
               phone: fmSnap.clientPhone || "",
-              email: "", pays: PAYS[0],
+              email: "", pays: normalizeLegacyCountry(ses.country) || "CI",
               cat: txObj.cat || "Commerce",
               status: "active", ca: amt,
             };
@@ -3878,7 +3893,7 @@ function Dashboard({ses,logout,updSes}){
       id:snap._edit?snap.id:xid(), uid,
       user_id:uid, // clé Supabase
       name:snap.name.trim(), phone:snap.phone||"",
-      email:snap.email||"", pays:snap.pays||PAYS[0],
+      email:snap.email||"", pays:snap.pays||"CI", ville:snap.ville||"",
       cat:snap.cat||"Commerce", status:snap.status||"active",
       ca:parseFloat(snap.ca)||0,
     };
@@ -3887,7 +3902,7 @@ function Dashboard({ses,logout,updSes}){
       setClis(prev=>prev.map(x=>x.id===c.id?c:x));
       toast("✅ Client modifié !");
       setMdl(null);setFm({});
-      await supaUpdate("clients",{name:c.name,phone:c.phone,email:c.email,country:c.pays,category:c.cat,status:c.status,revenue:c.ca,user_id:uid},c.id);
+      await supaUpdate("clients",{name:c.name,phone:c.phone,email:c.email,country:c.pays,city:c.ville,category:c.cat,status:c.status,revenue:c.ca,user_id:uid},c.id);
     } else {
       // NOUVEAU CLIENT
       if(!canAdd("cli")){toast(`🔒 Plan Free — max ${plan.maxCli} clients. Passez à Pro ! 🚀`,"warn");return;}
@@ -3897,7 +3912,7 @@ function Dashboard({ses,logout,updSes}){
       toast(`👤 Client créé : ${c.name} !`);
       setMdl(null);setFm({});
       // 2. INSERT Supabase en arrière-plan
-      const ok=await supaInsert("clients",{id:c.id,user_id:uid,name:c.name,phone:c.phone,email:c.email,country:c.pays,category:c.cat,status:c.status,revenue:c.ca});
+      const ok=await supaInsert("clients",{id:c.id,user_id:uid,name:c.name,phone:c.phone,email:c.email,country:c.pays,city:c.ville,category:c.cat,status:c.status,revenue:c.ca});
       if(!ok){
         // Rollback si INSERT échoué
         setClis(prev=>prev.filter(x=>x.id!==c.id));
@@ -4622,7 +4637,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:11,flexWrap:"wrap",gap:7}}>
         <div><div style={{fontWeight:900,fontSize:20}}>👥 Clients</div><div style={{fontSize:11,color:T.sub2}}>{clis.length} · {plan.maxCli===INF?"Illimité":clis.length+"/"+plan.maxCli}</div></div>
-        <div style={{display:"flex",gap:7}}><Btn sm v="g" ch="⬇ CSV" onClick={()=>csvExport(clis,"clients")}/><Btn ch="+ Ajouter" onClick={()=>{setFm({pays:PAYS[0],cat:"Commerce",status:"active"});setMdl("cli");}}/></div>
+        <div style={{display:"flex",gap:7}}><Btn sm v="g" ch="⬇ CSV" onClick={()=>csvExport(clis,"clients")}/><Btn ch="+ Ajouter" onClick={()=>{setFm({pays:normalizeLegacyCountry(ses.country)||"CI",ville:"",cat:"Commerce",status:"active"});setMdl("cli");}}/></div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:9}}>
         {clis.map(cl=>(
@@ -4633,7 +4648,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
               <div style={{width:42,height:42,borderRadius:"50%",background:`linear-gradient(135deg,${accent},${T.teal})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:13,color:T.ink,flexShrink:0}}>
                 {cl.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
               </div>
-              <div><div style={{fontWeight:700,fontSize:12}}>{cl.name}</div><div style={{fontSize:10,color:T.sub2}}>{cl.pays?.split(" ")[0]} · {cl.cat}</div></div>
+              <div><div style={{fontWeight:700,fontSize:12}}>{cl.name}</div><div style={{fontSize:10,color:T.sub2}}>{countryLabel(cl.pays)}{cl.ville?` · ${cl.ville}`:""} · {cl.cat}</div></div>
             </div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
               <div><div style={{fontSize:9,color:T.sub}}>CA Total</div><div style={{fontWeight:800,fontSize:14,color:T.gr}}>{fmtk(cl.ca)} F</div></div>
@@ -5655,6 +5670,8 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
       phone: ses.phone||"",
       goal: ses.goal||2500000,
       currency: ses.currency||DEFAULT_CURRENCY,
+      country: normalizeLegacyCountry(ses.country)||"",
+      city: ses.city||"",
     });
     const [saving,setSaving]=useState(false);
     const [savedAt,setSavedAt]=useState(null);
@@ -5662,7 +5679,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
 
     // Sync depuis session si changement externe (ex: rechargement)
     useEffect(()=>{
-      setLocalProfile({name:ses.name||"",biz:ses.business||"",phone:ses.phone||"",goal:ses.goal||2500000,currency:ses.currency||DEFAULT_CURRENCY});
+      setLocalProfile({name:ses.name||"",biz:ses.business||"",phone:ses.phone||"",goal:ses.goal||2500000,currency:ses.currency||DEFAULT_CURRENCY,country:normalizeLegacyCountry(ses.country)||"",city:ses.city||""});
     // eslint-disable-next-line react-hooks/exhaustive-deps
     },[ses.id]);
 
@@ -5689,7 +5706,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
       const cur=localProfile.currency||DEFAULT_CURRENCY;
       setGoal(g);
       setUserCurrency(cur); // mise à jour immédiate de l'affichage
-      await updSes({name:localProfile.name,business:localProfile.biz,phone:localProfile.phone,goal:g,currency:cur});
+      await updSes({name:localProfile.name,business:localProfile.biz,phone:localProfile.phone,goal:g,currency:cur,country:localProfile.country,city:localProfile.city});
       setSaving(false);
       setSavedAt(new Date());
       toast("✅ Profil sauvegardé avec succès !","ok",accent);
@@ -5747,6 +5764,14 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                 onChange={ev=>handlePhoneChange(ev.target.value)}
               />
           }/>
+          <div style={{marginBottom:13}}>
+            <LocationPicker
+              theme={T}
+              countryCode={localProfile.country}
+              city={localProfile.city}
+              onChange={({countryCode,city})=>setLocalProfile(p=>({...p,country:countryCode,city}))}
+            />
+          </div>
           <FL l="Objectif mensuel (FCFA)" ch={
             <input style={IS} type="number" inputMode="numeric"
               value={localProfile.goal}
@@ -6018,7 +6043,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                     </div>
                   </div>
                   <div style={{fontSize:12,color:T.sub2,lineHeight:1.6,fontStyle:"italic"}}>"{av.commentaire}"</div>
-                  {av.pays&&<div style={{fontSize:10,color:T.sub,marginTop:5}}>🌍 {av.pays}</div>}
+                  {av.pays&&<div style={{fontSize:10,color:T.sub,marginTop:5}}>{countryLabel(av.pays)||("🌍 "+av.pays)}</div>}
                 </div>
               ))}
             </div>
@@ -7110,7 +7135,7 @@ function ReseauCommerçants({
                         </span>
                       )}
                       {m.pays && (
-                        <span style={{ fontSize:10,color:T.sub }}>🌍 {m.pays}</span>
+                        <span style={{ fontSize:10,color:T.sub }}>{countryLabel(m.pays)||("🌍 "+m.pays)}</span>
                       )}
                     </div>
                     <div style={{ display:"flex",alignItems:"center",gap:8 }}>
@@ -7186,7 +7211,7 @@ function ReseauCommerçants({
                     <div style={{ fontSize:12,color:"#80a8c8",marginTop:2 }}>🏢 {m.business}</div>
                   )}
                   <div style={{ display:"flex",alignItems:"center",gap:8,marginTop:5,flexWrap:"wrap" }}>
-                    {m.pays && <span style={{ fontSize:10,color:"#4a7090" }}>🌍 {m.pays}</span>}
+                    {m.pays && <span style={{ fontSize:10,color:"#4a7090" }}>{countryLabel(m.pays)||("🌍 "+m.pays)}</span>}
                     {m.categorie && m.categorie !== "all" && (
                       <span style={{ background:`${accent}20`,borderRadius:20,padding:"2px 8px",
                         fontSize:9,fontWeight:700,color:accent }}>
@@ -7303,11 +7328,6 @@ function ReseauCommerçants({
   "Toutes","Commerce","Alimentation","Couture","Téléphonie",
   "Transport","BTP","Santé","Éducation","Services","Agriculture",
 ];
-
-const PAYS_FLAGS = {
-  "CI":"🇨🇮","SN":"🇸🇳","GH":"🇬🇭","CM":"🇨🇲",
-  "NG":"🇳🇬","ML":"🇲🇱","BF":"🇧🇫","TG":"🇹🇬",
-};
 
 // ── FeedCard — défini en dehors de CommerçantsProches pour éviter le re-mount React ──
 function FeedCard({ c, i, accent, Tc, ratingMap, onRate, doCall, doWA, onAddClient, onCreateInvoice, onPayment, CATS_VIS, CAT_IMG }) {
@@ -7428,7 +7448,8 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
     {id:"business",    label:"Business",    emoji:"💼"},
   ];
 
-  const VILLES_VIS = ["","Abidjan","Dakar","Douala","Accra","Lagos","Bamako","Ouagadougou","Lomé","Cotonou","Conakry"];
+  // Liste plate de toutes les villes connues (filtre simple — voir Stage 2 pour un filtre pays+ville structuré)
+  const VILLES_VIS = Array.from(new Set(COUNTRIES.flatMap(c => c.cities))).sort();
 
   // Images de fallback par catégorie (Unsplash)
   const CAT_IMG = {
@@ -7450,7 +7471,7 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
   const [ratingMap,   setRatingMap]   = useState({});   // id → note locale
   const [myProfile,   setMyProfile]   = useState(null);
   const [editOpen,    setEditOpen]    = useState(false);
-  const [editForm,    setEditForm]    = useState({ activite:"", ville:"", visible:true, phone:"", image_url:"", category:"" });
+  const [editForm,    setEditForm]    = useState({ activite:"", ville:"", pays:normalizeLegacyCountry(user?.country)||"CI", visible:true, phone:"", image_url:"", category:"" });
   const [saving,      setSaving]      = useState(false);
   const [previewImg,  setPreviewImg]  = useState(null);
 
@@ -7466,7 +7487,7 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
       const { data } = await q;
       setPosts(data || []);
       const moi = (data||[]).find(c => c.id === user?.id);
-      if (moi) { setMyProfile(moi); setEditForm({ activite:moi.activite||"", ville:moi.ville||"", visible:moi.visible!==false, phone:moi.phone||"", image_url:moi.image_url||"", category:moi.category||"" }); }
+      if (moi) { setMyProfile(moi); setEditForm({ activite:moi.activite||"", ville:moi.ville||"", pays:normalizeLegacyCountry(moi.pays)||"CI", visible:moi.visible!==false, phone:moi.phone||"", image_url:moi.image_url||"", category:moi.category||"" }); }
     } catch(e) { setPosts([]); }
     finally { setLoading(false); }
   }, [filterCat, filterVille]);
@@ -7479,7 +7500,7 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
     setSaving(true);
     try {
       const s = await supabase();
-      const row = { id:user?.id, nom:user?.name||"Commerçant", business:user?.business||"", activite:editForm.activite.trim(), ville:editForm.ville.trim(), pays:user?.country||"CI", visible:editForm.visible, phone:editForm.phone||"", image_url:previewImg||editForm.image_url||"", category:editForm.category||"" };
+      const row = { id:user?.id, nom:user?.name||"Commerçant", business:user?.business||"", activite:editForm.activite.trim(), ville:editForm.ville.trim(), pays:editForm.pays||normalizeLegacyCountry(user?.country)||"CI", visible:editForm.visible, phone:editForm.phone||"", image_url:previewImg||editForm.image_url||"", category:editForm.category||"" };
       if (myProfile) { await s.from("commercants_profils").update(row).eq("id",user?.id); }
       else           { await s.from("commercants_profils").insert(row); }
       setMyProfile(row); setEditOpen(false); await load();
@@ -7533,73 +7554,6 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
 
   // ── Carte feed — voir FeedCard défini en dehors du composant ──
 
-  // ── Écran édition profil ──
-  function ProfilePanel() { return (
-    <div style={{ background:`linear-gradient(135deg,${accent}10,${Tc.c1})`, border:`2px solid ${accent}44`, borderRadius:20, padding:"1.4rem", marginBottom:20 }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:editOpen?16:0 }}>
-        <div style={{ fontWeight:800, fontSize:13 }}>
-          {myProfile ? "✅ Mon profil est visible" : "👤 Rejoindre le réseau"}
-        </div>
-        <button onClick={()=>setEditOpen(o=>!o)} style={{ background:editOpen?`${accent}20`:Tc.c2, border:`1px solid ${accent}44`, borderRadius:9, cursor:"pointer", color:accent, fontSize:11, fontWeight:700, padding:"6px 14px", fontFamily:"inherit" }}>
-          {editOpen ? "✕ Fermer" : myProfile ? "✏️ Modifier" : "➕ Rejoindre"}
-        </button>
-      </div>
-      {!editOpen && myProfile && (
-        <div style={{ fontSize:12, color:Tc.sub2, marginTop:6 }}>{user?.business||user?.name} · {myProfile.activite} · {myProfile.ville||"—"}</div>
-      )}
-      {editOpen && (
-        <div>
-          {/* Photo profil */}
-          <label style={{ display:"block", cursor:"pointer", marginBottom:12 }}>
-            <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:".06em", color:Tc.sub, marginBottom:5 }}>📷 Photo de votre commerce</div>
-            <input type="file" accept="image/*" onChange={handleImg} style={{ display:"none" }}/>
-            {previewImg||editForm.image_url ? (
-              <img src={previewImg||editForm.image_url} alt="preview" style={{ width:"100%", height:140, objectFit:"cover", borderRadius:14, border:`2px solid ${accent}55` }}/>
-            ) : (
-              <div style={{ width:"100%", height:110, borderRadius:14, border:`2px dashed ${Tc.border}`, background:Tc.c2, display:"flex", alignItems:"center", justifyContent:"center", gap:8, color:Tc.sub, fontSize:12, fontWeight:600 }}>
-                📷 Ajouter une photo
-              </div>
-            )}
-          </label>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
-            <div>
-              <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Activité *</label>
-              <input style={IS2} placeholder="Coiffure, Épicerie…" value={editForm.activite} onChange={e=>setEditForm(f=>({...f,activite:e.target.value}))}/>
-            </div>
-            <div>
-              <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Ville</label>
-              <select style={IS2} value={editForm.ville} onChange={e=>setEditForm(f=>({...f,ville:e.target.value}))}>
-                <option value="">Choisir…</option>
-                {VILLES_VIS.filter(v=>v).map(v=><option key={v}>{v}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Catégorie</label>
-              <select style={IS2} value={editForm.category} onChange={e=>setEditForm(f=>({...f,category:e.target.value}))}>
-                <option value="">Sélectionner…</option>
-                {CATS_VIS.filter(c=>c.id).map(c=><option key={c.id} value={c.id}>{c.emoji} {c.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Téléphone</label>
-              <input type="tel" style={IS2} placeholder="+225 07 000 0000" value={editForm.phone} onChange={e=>setEditForm(f=>({...f,phone:e.target.value}))}/>
-            </div>
-          </div>
-          {/* Toggle visibilité */}
-          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
-            <div onClick={()=>setEditForm(f=>({...f,visible:!f.visible}))} style={{ width:38, height:22, borderRadius:11, cursor:"pointer", background:editForm.visible?accent:Tc.c3, border:`1px solid ${editForm.visible?accent:Tc.border}`, position:"relative", transition:"all .2s", flexShrink:0 }}>
-              <div style={{ width:18, height:18, borderRadius:"50%", background:"#fff", position:"absolute", top:1, left:editForm.visible?18:2, transition:"left .2s" }}/>
-            </div>
-            <span style={{ fontSize:12, color:Tc.sub2 }}>{editForm.visible ? "Visible dans le réseau" : "Masqué"}</span>
-          </div>
-          <button onClick={saveProfile} disabled={saving} style={{ width:"100%", padding:"12px", borderRadius:12, border:"none", background:saving?Tc.c3:`linear-gradient(135deg,${accent},${Tc.teal})`, color:saving?Tc.sub:Tc.ink, fontFamily:"inherit", fontWeight:900, fontSize:14, cursor:saving?"not-allowed":"pointer", boxShadow:saving?"none":`0 6px 20px ${accent}44` }}>
-            {saving ? "⏳ Sauvegarde…" : myProfile ? "💾 Mettre à jour" : "✅ Rejoindre le réseau"}
-          </button>
-        </div>
-      )}
-    </div>
-  ); }
-
   return (
     <div style={{ fontFamily:"'Inter','Segoe UI',system-ui,sans-serif", color:Tc.text }}>
       {/* ── HEADER ── */}
@@ -7639,18 +7593,20 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
                 </div>
               )}
             </label>
+            <div style={{ marginBottom:10 }}>
+              <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Activité *</label>
+              <input style={IS2} placeholder="Coiffure, Épicerie…" value={editForm.activite} onChange={e=>setEditForm(f=>({...f,activite:e.target.value}))}/>
+            </div>
+            <div style={{ marginBottom:10 }}>
+              <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Localisation</label>
+              <LocationPicker
+                theme={Tc}
+                countryCode={editForm.pays}
+                city={editForm.ville}
+                onChange={({countryCode,city})=>setEditForm(f=>({...f,pays:countryCode,ville:city}))}
+              />
+            </div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
-              <div>
-                <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Activité *</label>
-                <input style={IS2} placeholder="Coiffure, Épicerie…" value={editForm.activite} onChange={e=>setEditForm(f=>({...f,activite:e.target.value}))}/>
-              </div>
-              <div>
-                <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Ville</label>
-                <select style={IS2} value={editForm.ville} onChange={e=>setEditForm(f=>({...f,ville:e.target.value}))}>
-                  <option value="">Choisir…</option>
-                  {VILLES_VIS.filter(v=>v).map(v=><option key={v}>{v}</option>)}
-                </select>
-              </div>
               <div>
                 <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Catégorie</label>
                 <select style={IS2} value={editForm.category} onChange={e=>setEditForm(f=>({...f,category:e.target.value}))}>
@@ -7833,7 +7789,7 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
     const [posts, setPosts]         = useState([]);
     const [loadingP, setLoadingP]   = useState(false);
     const [published, setPublished] = useState(false);
-    const [propForm, setPropForm]   = useState({city:"",phone:"",desc:"",imageUrl:"",imageFile:null});
+    const [propForm, setPropForm]   = useState({country:normalizeLegacyCountry(ses?.country)||"CI",city:"",phone:"",desc:"",imageUrl:"",imageFile:null});
     // v35 — Plusieurs photos au lieu d'une seule (max 5) pour inspirer confiance
     const MAX_PROP_IMAGES = 5;
     const [propImages, setPropImages] = useState([]); // tableau de data-URLs compressées
@@ -7870,7 +7826,8 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
       {id:"business",  label:"Business",     emoji:"💼", col:"#1a78ff", bg:"rgba(26,120,255,.08)",
        img:"https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=400&q=75", desc:"Import-export, commerce"},
     ];
-    const AR_VILLES = ["Abidjan","Dakar","Douala","Accra","Lagos","Bamako","Ouagadougou","Lomé","Cotonou","Conakry","Abuja","Kumasi","Bouaké","Oran","Casablanca"];
+    // Liste plate de toutes les villes connues (filtre simple — voir Stage 2 pour un filtre pays+ville structuré)
+    const AR_VILLES = Array.from(new Set(COUNTRIES.flatMap(c => c.cities))).sort();
 
     const catObj = AR_CATS.find(c=>c.id===selCat);
 
@@ -7919,7 +7876,7 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
       setLoadingP(true);
       try{
         const s=await getSupa();
-        await s.from("quick_posts").insert({id:xid(),user_id:ses?.id||"",category:selCat,city:propForm.city,phone:propForm.phone,description:propForm.desc||"",image_url:propImages[0],image_urls:propImages,created_at:new Date().toISOString()});
+        await s.from("quick_posts").insert({id:xid(),user_id:ses?.id||"",category:selCat,country:propForm.country,city:propForm.city,phone:propForm.phone,description:propForm.desc||"",image_url:propImages[0],image_urls:propImages,created_at:new Date().toISOString()});
         await trackAR("propose","publish");
         setPublished(true);
       }catch(e){
@@ -7927,7 +7884,7 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
         if(String(e?.message||"").includes("image_urls")){
           try{
             const s=await getSupa();
-            await s.from("quick_posts").insert({id:xid(),user_id:ses?.id||"",category:selCat,city:propForm.city,phone:propForm.phone,description:propForm.desc||"",image_url:propImages[0],created_at:new Date().toISOString()});
+            await s.from("quick_posts").insert({id:xid(),user_id:ses?.id||"",category:selCat,country:propForm.country,city:propForm.city,phone:propForm.phone,description:propForm.desc||"",image_url:propImages[0],created_at:new Date().toISOString()});
             await trackAR("propose","publish");
             setPublished(true);
           }catch(e2){toast("Erreur — réessayez","err");}
@@ -8137,13 +8094,15 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
             <label style={{display:"block",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:T.sub,marginBottom:5}}>Catégorie (auto)</label>
             <div style={{padding:"10px 14px",background:T.c3,borderRadius:11,border:`1px solid ${T.border}`,fontSize:13,display:"flex",alignItems:"center",gap:8}}>{catObj?.emoji} {catObj?.label}</div>
           </div>
-          {/* Ville */}
+          {/* Localisation */}
           <div style={{marginBottom:13}}>
-            <label style={{display:"block",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:T.sub,marginBottom:5}}>📍 Ville <span style={{color:T.red}}>*</span></label>
-            <select style={IFS} value={propForm.city} onChange={e=>setPropForm(f=>({...f,city:e.target.value}))}>
-              <option value="">Choisir une ville…</option>
-              {AR_VILLES.map(v=><option key={v}>{v}</option>)}
-            </select>
+            <label style={{display:"block",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:T.sub,marginBottom:5}}>📍 Localisation <span style={{color:T.red}}>*</span></label>
+            <LocationPicker
+              theme={T}
+              countryCode={propForm.country}
+              city={propForm.city}
+              onChange={({countryCode,city})=>setPropForm(f=>({...f,country:countryCode,city}))}
+            />
           </div>
           {/* Téléphone */}
           <div style={{marginBottom:13}}>
@@ -8615,11 +8574,14 @@ function CommerçantsProches({ user, supabase, accent="#00d478", toast, onAddCli
       {/* Client */}
       <Modal open={mdl==="cli"} onClose={()=>{setMdl(null);setFm({});}} title={fm._edit?t("editClient"):t("newClient")}>
         <FL l={t("fullNameClient")} ch={<input style={IS} placeholder={t("businessOrName")} value={fm.name||""} onChange={ev=>setFm(f=>({...f,name:ev.target.value}))}/>}/>
-        <FL l={t("country")}>
-          <select style={IS} value={fm.pays||PAYS[0]} onChange={ev=>setFm(f=>({...f,pays:ev.target.value}))}>
-            {PAYS.map(p=><option key={p}>{p}</option>)}
-          </select>
-        </FL>
+        <div style={{marginBottom:13}}>
+          <LocationPicker
+            theme={T}
+            countryCode={fm.pays||"CI"}
+            city={fm.ville||""}
+            onChange={({countryCode,city})=>setFm(f=>({...f,pays:countryCode,ville:city}))}
+          />
+        </div>
         <FL l={t("phone")} ch={<input type="tel" style={IS} placeholder="+225 07 000 0000" value={fm.phone||""} onChange={ev=>setFm(f=>({...f,phone:ev.target.value}))}/>}/>
         <FL l={t("emailLabel")} ch={<input type="email" style={IS} placeholder="client@email.com" value={fm.email||""} onChange={ev=>setFm(f=>({...f,email:ev.target.value}))}/>}/>
         <FL l={t("catLabel")}>
