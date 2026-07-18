@@ -128,6 +128,7 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
   const [editForm,    setEditForm]    = useState({ activite:"", ville:"", pays:normalizeLegacyCountry(user?.country)||"CI", visible:true, phone:"", image_url:"", category:"" });
   const [saving,      setSaving]      = useState(false);
   const [previewImg,  setPreviewImg]  = useState(null);
+  const [uploadingImg, setUploadingImg] = useState(false);
 
   const isBusiness = plan === "business";
 
@@ -179,7 +180,12 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
     finally { setSaving(false); }
   };
 
-  // ── Image upload avec compression ──
+  // ── Image upload avec compression + envoi vers Supabase Storage ──
+  // Remplace l'ancien stockage base64-dans-la-colonne-texte : l'image
+  // compressée est envoyée dans le bucket "network-media" et seule son
+  // URL publique (courte) est stockée en base — chargement plus rapide,
+  // pas de limite de taille de ligne Postgres, et ça pose l'infrastructure
+  // qui servira à la vidéo courte dans une étape suivante.
   const handleImg = (e) => {
     const f = e.target.files[0]; if (!f) return;
     const img = new Image();
@@ -191,9 +197,23 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
       const canvas=document.createElement("canvas");
       canvas.width=w;canvas.height=h;
       canvas.getContext("2d").drawImage(img,0,0,w,h);
-      const compressed=canvas.toDataURL("image/jpeg",0.72);
       URL.revokeObjectURL(url);
-      setPreviewImg(compressed);
+      canvas.toBlob(async (blob) => {
+        if (!blob) { toast?.("❌ Erreur de traitement de l'image","err"); return; }
+        setUploadingImg(true);
+        try {
+          const s = await supabase();
+          const path = `${user?.id}/profile-${Date.now()}.jpg`;
+          const { error } = await s.storage.from("network-media").upload(path, blob, { contentType:"image/jpeg", upsert:true });
+          if (error) throw error;
+          const { data } = s.storage.from("network-media").getPublicUrl(path);
+          setPreviewImg(data.publicUrl);
+        } catch(err) {
+          toast?.("❌ Envoi de la photo échoué — réessaie","err");
+        } finally {
+          setUploadingImg(false);
+        }
+      }, "image/jpeg", 0.72);
     };
     img.src=url;
   };
@@ -258,8 +278,12 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
             {/* Photo profil */}
             <label style={{ display:"block", cursor:"pointer", marginBottom:12 }}>
               <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:".06em", color:Tc.sub, marginBottom:5 }}>📷 Photo de votre commerce</div>
-              <input type="file" accept="image/*" onChange={handleImg} style={{ display:"none" }}/>
-              {previewImg||editForm.image_url ? (
+              <input type="file" accept="image/*" onChange={handleImg} disabled={uploadingImg} style={{ display:"none" }}/>
+              {uploadingImg ? (
+                <div style={{ width:"100%", height:150, borderRadius:14, border:`2px dashed ${accent}55`, background:Tc.c2, display:"flex", alignItems:"center", justifyContent:"center", gap:8, color:accent, fontSize:12, fontWeight:600 }}>
+                  ⏳ Envoi de la photo…
+                </div>
+              ) : previewImg||editForm.image_url ? (
                 <img src={previewImg||editForm.image_url} alt="preview" style={{ width:"100%", height:150, objectFit:"cover", borderRadius:14, border:`2px solid ${accent}55` }}/>
               ) : (
                 <div style={{ width:"100%", height:110, borderRadius:14, border:`2px dashed ${Tc.border}`, background:Tc.c2, display:"flex", alignItems:"center", justifyContent:"center", gap:8, color:Tc.sub, fontSize:12, fontWeight:600 }}>
@@ -295,8 +319,8 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
               </div>
               <span style={{ fontSize:12, color:Tc.sub2 }}>{editForm.visible ? "Visible dans le réseau" : "Masqué"}</span>
             </div>
-            <button onClick={saveProfile} disabled={saving} style={{ width:"100%", padding:"12px", borderRadius:12, border:"none", background:saving?Tc.c3:`linear-gradient(135deg,${accent},${Tc.teal})`, color:saving?Tc.sub:Tc.ink, fontFamily:"inherit", fontWeight:900, fontSize:14, cursor:saving?"not-allowed":"pointer", boxShadow:saving?"none":`0 6px 20px ${accent}44` }}>
-              {saving ? "⏳ Sauvegarde…" : myProfile ? "💾 Mettre à jour" : "✅ Rejoindre le réseau"}
+            <button onClick={saveProfile} disabled={saving||uploadingImg} style={{ width:"100%", padding:"12px", borderRadius:12, border:"none", background:(saving||uploadingImg)?Tc.c3:`linear-gradient(135deg,${accent},${Tc.teal})`, color:(saving||uploadingImg)?Tc.sub:Tc.ink, fontFamily:"inherit", fontWeight:900, fontSize:14, cursor:(saving||uploadingImg)?"not-allowed":"pointer", boxShadow:(saving||uploadingImg)?"none":`0 6px 20px ${accent}44` }}>
+              {uploadingImg ? "⏳ Envoi de la photo…" : saving ? "⏳ Sauvegarde…" : myProfile ? "💾 Mettre à jour" : "✅ Rejoindre le réseau"}
             </button>
           </div>
         </div>
