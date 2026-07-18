@@ -23,6 +23,17 @@ export default async function handler(req, res) {
   if (!message || typeof message !== "string" || !message.trim()) {
     return res.status(400).json({ error: "Message manquant ou invalide" });
   }
+  // Garde-fou coût/abus — un message anormalement long n'a aucune utilité
+  // légitime pour un chat de coaching et gonfle le coût par appel.
+  if (message.length > 2000) {
+    return res.status(400).json({ error: "Message trop long (2000 caractères max)" });
+  }
+
+  // Nettoyage des champs texte libres injectés dans le system prompt —
+  // limite la longueur et retire les sauts de ligne, pour réduire la
+  // marge de manœuvre d'une tentative d'injection de prompt via le nom
+  // ou le nom d'entreprise (ce endpoint n'exige pas de session Supabase).
+  const cleanText = (v, max) => String(v ?? "").replace(/[\r\n]+/g, " ").trim().slice(0, max);
 
   // ── 3. Clé API Anthropic — jamais exposée au frontend ──
   const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
@@ -32,19 +43,18 @@ export default async function handler(req, res) {
   }
 
   // ── 4. Construction du system prompt avec données utilisateur ──
-  const {
-    name       = "entrepreneur",
-    business   = "mon business",
-    sales      = 0,
-    expenses   = 0,
-    profit     = 0,
-    clients    = 0,
-    invoices   = 0,
-    overdueInv = 0,
-    goal       = 2500000,
-    gPct       = 0,
-    currency   = "FCFA",
-  } = userData;
+  const name     = cleanText(userData.name, 60) || "entrepreneur";
+  const business = cleanText(userData.business, 80) || "mon business";
+  const currency = cleanText(userData.currency, 10) || "FCFA";
+  const num = (v, fallback = 0) => { const n = Number(v); return Number.isFinite(n) ? n : fallback; };
+  const sales      = num(userData.sales);
+  const expenses   = num(userData.expenses);
+  const profit     = num(userData.profit);
+  const clients    = num(userData.clients);
+  const invoices   = num(userData.invoices);
+  const overdueInv = num(userData.overdueInv);
+  const goal       = num(userData.goal, 2500000);
+  const gPct       = num(userData.gPct);
 
   const fmt = (n) => new Intl.NumberFormat("fr-FR").format(Math.round(n || 0));
 
@@ -64,7 +74,8 @@ Utilise ces données pour personnaliser tes réponses. Sois concis, humain et or
   // On garde les 10 derniers échanges max pour garder le contexte sans exploser les tokens
   const recentHistory = (Array.isArray(history) ? history : [])
     .slice(-10)
-    .filter(m => m.role && m.content);
+    .filter(m => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
+    .map(m => ({ role: m.role, content: m.content.slice(0, 2000) }));
 
   const messages = [
     ...recentHistory,

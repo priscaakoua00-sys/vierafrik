@@ -264,6 +264,11 @@ const fmtPriceShort = (amount, currency) => fmtPrice(amount, currency);
 // Utilise DEFAULT_CURRENCY — pas de devise par facture ici (données globales dashboard)
 const fmtf=n=>fmtPrice(n, DEFAULT_CURRENCY);
 
+// Numéro WhatsApp du support VierAfrik (format international sans "+", ex: "22507000000").
+// Laisser vide tant qu'il n'est pas configuré — le bloc "Support prioritaire"
+// reste alors masqué plutôt que de pointer vers un lien wa.me factice.
+const VIERAFRIK_SUPPORT_WHATSAPP="";
+
 const CATS_S=["Commerce","Services","Alimentation","Agriculture","Transport","BTP","Santé","Éducation","Divers"];
 const CATS_E=["Salaires","Loyer","Transport","Marketing","Matières premières","Équipement","Communication","Divers"];
 // PAYS / villes — voir src/data/locations.js (COUNTRIES) — source unique pays/villes de toute l'app
@@ -430,6 +435,7 @@ const xid = () => {
 };
 const today=()=>new Date().toISOString().slice(0,10);
 const mkey=(d)=>(d||today()).slice(0,7);
+const mkeyLabel=(k)=>{ const [y,m]=(k||mkey()).split("-").map(Number); const d=new Date(y,(m||1)-1,1); return d.toLocaleDateString("fr-FR",{month:"long",year:"numeric"}).replace(/^./,c=>c.toUpperCase()); };
 const fmt=n=>new Intl.NumberFormat("fr-FR").format(Math.round(n||0));
 const fmtk=n=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1e3?(n/1e3).toFixed(0)+"k":String(Math.round(n||0));
 const cleanP=p=>(p||"").replace(/\D/g,"");
@@ -1275,12 +1281,20 @@ function PublicPayPage({ invoiceId }) {
       )}
 
       {/* Header */}
-      <div style={{ background:"rgba(0,212,120,0.06)", borderBottom:"1px solid rgba(0,212,120,0.12)", padding:"14px 20px", display:"flex", alignItems:"center", gap:10 }}>
-        <div style={{ width:36, height:36, borderRadius:10, background:"linear-gradient(135deg,#00d478,#00bfcc)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🌍</div>
-        <div>
-          <div style={{ fontWeight:900, fontSize:16, color:"#00d478", letterSpacing:"-.03em" }}>VierAfrik</div>
-          <div style={{ fontSize:10, color:"#4a7090" }}>Paiement sécurisé · Mobile Money</div>
+      <div style={{ background:"rgba(0,212,120,0.06)", borderBottom:"1px solid rgba(0,212,120,0.12)", padding:"14px 20px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <div style={{ width:36, height:36, borderRadius:10, background:"linear-gradient(135deg,#00d478,#00bfcc)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🌍</div>
+          <div>
+            <div style={{ fontWeight:900, fontSize:16, color:"#00d478", letterSpacing:"-.03em" }}>VierAfrik</div>
+            <div style={{ fontSize:10, color:"#4a7090" }}>Paiement sécurisé · Mobile Money</div>
+          </div>
         </div>
+        {/* Échappatoire — un utilisateur déjà connecté qui atterrit ici via
+            son propre lien de paiement (test, partage, onglet réutilisé) ne
+            doit jamais rester bloqué sans moyen de revenir à son espace. */}
+        <a href={window.location.origin} style={{ fontSize:11, color:"#4a7090", textDecoration:"none", fontWeight:600, whiteSpace:"nowrap" }}>
+          🏠 Mon espace
+        </a>
       </div>
 
       <div style={{ maxWidth:480, margin:"0 auto", padding:"20px 16px" }}>
@@ -2511,8 +2525,9 @@ function ActivityNotifWidget(){
 //  N'affecte AUCUNE donnée existante — tests en lecture seule
 //  + test d'insertion sur une table de test dédiée
 // ════════════════════════════════════════════════════════════
-// Doit rester identique à ADMIN_EMAILS dans Dashboard — un panneau de
-// diagnostic technique ne doit jamais être visible par un autre compte.
+// Source unique des emails admin — réutilisée telle quelle comme
+// ADMIN_EMAILS dans Dashboard, pour qu'un accès admin (mode gratuit total,
+// panneau de diagnostic technique) ne puisse jamais diverger entre les deux.
 const DIAG_ADMIN_EMAILS = ["priscaakoua00@gmail.com", "contactvierafrik@gmail.com"];
 
 function SupaDiagPanel({ uid, userEmail }) {
@@ -2830,12 +2845,10 @@ function Dashboard({ses,logout,updSes}){
 
   // ══════════════════════════════════════════════════════
   //  MODE ADMIN — accès total sans payer
-  //  Ajouter d'autres emails ici si nécessaire
+  //  Ajouter d'autres emails ici si nécessaire (source unique —
+  //  voir DIAG_ADMIN_EMAILS, qui doit rester identique)
   // ══════════════════════════════════════════════════════
-  const ADMIN_EMAILS=[
-    "priscaakoua00@gmail.com",
-    "contactvierafrik@gmail.com",
-  ];
+  const ADMIN_EMAILS=DIAG_ADMIN_EMAILS;
   const isAdmin=ADMIN_EMAILS.includes((ses.email||"").toLowerCase().trim());
   // isFr — toujours true (app 100% française) — utilisé dans CoachIA et insights
   const isFr = true;
@@ -3313,7 +3326,7 @@ function Dashboard({ses,logout,updSes}){
   const profit=sales-exps;
   const allSales=txs.filter(t=>t.type==="sale").reduce((s,t)=>s+t.amount,0);
   const allExps=txs.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
-  const gPct=goal>0?Math.min(100,Math.round(profit/goal*100)):0;
+  const gPct=goal>0?Math.max(0,Math.min(100,Math.round(profit/goal*100))):0;
 
   // Insights automatiques — multilingue
   const insights=useMemo(()=>{
@@ -4024,7 +4037,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         <div style={{position:"relative"}}>
           <div style={{fontWeight:800,fontSize:13,marginBottom:3,display:"flex",alignItems:"center",gap:6}}>
             <span style={{background:accent,color:T.ink,borderRadius:6,padding:"2px 7px",fontSize:10}}>🎯</span>
-            Objectif mensuel — {cm}
+            Objectif mensuel — {mkeyLabel(cm)}
           </div>
           <div style={{fontSize:11,color:T.sub2,marginBottom:10}}>Cible : <strong style={{color:T.text}}>{fmtf(goal)}</strong></div>
           <div style={{background:"rgba(0,0,0,.3)",borderRadius:20,height:6,width:220,overflow:"hidden"}}>
@@ -4466,6 +4479,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     const updateEmployee = async () => {
       if (!validateEmp()) return;
       setSaving(true);
+      const prevEmp = emps.find(e => e.id === fmEmp.id);
       const updated = {
         ...fmEmp,
         name: fmEmp.name.trim(),
@@ -4475,14 +4489,23 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
       };
       setEmps(prev => prev.map(e => e.id === updated.id ? updated : e));
       setMdlEmp(null); setFmEmp({});
-      toast(t("empEdited"));
       try {
         const s = await getSupa();
-        await s.from("employees").update({
+        const { error } = await s.from("employees").update({
           name: updated.name, phone: updated.phone || "",
           salary: updated.salary, currency: updated.currency, role: updated.role,
         }).eq("id", updated.id);
-      } catch(e) { console.error("employees update:", e); }
+        if (error) {
+          if (prevEmp) setEmps(prev => prev.map(e => e.id === updated.id ? prevEmp : e));
+          toast("❌ Modification non sauvegardée — réessayez", "err");
+          console.error("employees update:", error);
+        } else {
+          toast(t("empEdited"));
+        }
+      } catch(e) {
+        if (prevEmp) setEmps(prev => prev.map(e => e.id === updated.id ? prevEmp : e));
+        toast("❌ Erreur réseau", "err");
+      }
       setSaving(false);
     };
 
@@ -4495,12 +4518,21 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         danger: true,
         onConfirm: async () => {
           setEmps(prev => prev.filter(e => e.id !== emp.id));
-          toast(t("empDeleted"), "warn");
           setConfirm(null);
           try {
             const s = await getSupa();
-            await s.from("employees").delete().eq("id", emp.id);
-          } catch(e) { console.error("employees delete:", e); }
+            const { error } = await s.from("employees").delete().eq("id", emp.id);
+            if (error) {
+              setEmps(prev => [emp, ...prev]);
+              toast("❌ Suppression échouée — réessayez", "err");
+              console.error("employees delete:", error);
+            } else {
+              toast(t("empDeleted"), "warn");
+            }
+          } catch(e) {
+            setEmps(prev => [emp, ...prev]);
+            toast("❌ Erreur réseau", "err");
+          }
         },
       });
     };
@@ -4979,7 +5011,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     const recouv=invs.length>0?Math.round(invs.filter(i=>i.status==="paid").length/invs.length*100):0;
     const topC=Object.entries(txs.filter(t=>t.type==="sale"&&t.who).reduce((a,t)=>{a[t.who]=(a[t.who]||0)+t.amount;return a;},{})).sort((a,b)=>b[1]-a[1]).slice(0,5);
     const kpis=[
-      {l:"Marge nette",v:marge+"%",co:T.gr,ic:"📈",hint:"Bénéfice / CA"},
+      {l:"Marge nette",v:marge+"%",co:marge<0?T.red:T.gr,ic:"📈",hint:"Bénéfice / CA"},
       {l:"Panier moyen",v:fmtk(panier)+" F",co:T.blue,ic:"🛒",hint:"Par transaction"},
       {l:"Recouvrement",v:recouv+"%",co:T.gold,ic:"💳",hint:"Factures payées"},
       {l:"Retards",v:invs.filter(i=>i.status==="overdue").length,co:T.red,ic:"⏰",hint:"Factures en retard"},
@@ -5221,12 +5253,12 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         try{
           const s=await getSupa();
           const expires=new Date(Date.now()+30*24*60*60*1000).toISOString();
-          await s.from("subscriptions").insert({
+          const {error}=await s.from("subscriptions").insert({
             id:xid(),user_id:ses.id,plan:planKey,status:"active",
             is_trial:false,paid_at:new Date().toISOString(),expires_at:expires,
             created_at:new Date().toISOString(),updated_at:new Date().toISOString(),
           });
-          updSes({plan:planKey});
+          if(error){console.error("❌ [TEST_MODE] Insert échoué:",error);toast("❌ Erreur activation test — réessayez","err");return;}
           await loadSubscription();
           toast(`✅ Plan ${planObj.label} activé (mode test) !`,"ok",T.gr);
         }catch(e){console.error("❌ [TEST_MODE] Activation échouée:",e);toast("❌ Erreur activation test — réessayez","err");}
@@ -5244,6 +5276,32 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         if(url){window.location.href=url;}
         else{console.error("❌ [FedaPay] Réponse inattendue:",data);toast("❌ "+(data?.message||data?.error||"Erreur paiement — réessayez"),"err");}
       }catch(e){console.error("❌ [FedaPay] Exception:",e);toast("❌ Erreur réseau — vérifiez votre connexion","err");}
+    };
+
+    // Rétrograder au plan gratuit — annule réellement l'abonnement actif en
+    // base (au lieu de ne changer que l'état local, qui se rétablissait tout
+    // seul dès le prochain loadSubscription() puisque la ligne "active" en
+    // base ne bougeait jamais).
+    const doDowngrade=async()=>{
+      setConfirm({
+        title:"Repasser en plan gratuit",
+        msg:"Tu vas perdre l'accès aux fonctionnalités payantes à la fin de la période déjà payée. Continuer ?",
+        confirmLabel:"Rétrograder",
+        danger:true,
+        onConfirm:async()=>{
+          setConfirm(null);
+          try{
+            const s=await getSupa();
+            const {data:current}=await s.from("subscriptions").select("id").eq("user_id",ses.id).eq("status","active").order("paid_at",{ascending:false}).limit(1).maybeSingle();
+            if(current?.id){
+              const {error}=await s.from("subscriptions").update({status:"cancelled",updated_at:new Date().toISOString()}).eq("id",current.id);
+              if(error){console.error("❌ [downgrade] Échec:",error);toast("❌ Erreur — réessayez","err");return;}
+            }
+            await loadSubscription();
+            toast("✅ Repassé en plan Free","ok",T.gr);
+          }catch(e){console.error("❌ [downgrade] Exception:",e);toast("❌ Erreur réseau","err");}
+        },
+      });
     };
 
     // Statut abonnement affiché
@@ -5304,7 +5362,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                 <div style={{
                   background:`linear-gradient(90deg,${subStatusColor},${T.teal})`,
                   height:"100%",borderRadius:20,transition:"width 1s",
-                  width:Math.min(100,Math.round(subscription.days_left/30*100))+"%",
+                  width:Math.min(100,Math.round(subscription.days_left/(subscription.is_trial?TRIAL_DAYS:30)*100))+"%",
                 }}/>
               </div>
             </div>
@@ -5401,10 +5459,10 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                 <Btn full sx={{marginTop:15}} v={k==="business"?"gold":"p"} ch={`Passer à ${p.label} →`} onClick={()=>doSubPayment(k,p)}/>
               )}
               {!isCur&&k==="free"&&(
-                <Btn full sx={{marginTop:15}} v="g" ch="Rétrograder" onClick={()=>{updSes({plan:"free"});toast("Plan gratuit activé");}}/>
+                <Btn full sx={{marginTop:15}} v="g" ch="Rétrograder" onClick={doDowngrade}/>
               )}
               {isCur&&k==="free"&&(
-                <Btn full sx={{marginTop:15}} v="out" ch={`Passer à Pro — ${fmtPriceShort(4900)}/mois →`} onClick={()=>doSubPayment("pro",PLANS.pro)}/>
+                <Btn full sx={{marginTop:15}} v="out" ch={`Passer à Pro — ${fmtPriceShort(PLANS.pro.price)}/mois →`} onClick={()=>doSubPayment("pro",PLANS.pro)}/>
               )}
               {isCur&&k!=="free"&&isSubActive&&(
                 <div style={{marginTop:15,textAlign:"center",fontSize:11,color:p.col,fontWeight:700}}>
@@ -5493,8 +5551,8 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     <div>
       <div style={{fontWeight:900,fontSize:22,marginBottom:4,letterSpacing:"-.03em"}}>⚙️ Mon Compte</div>
       <div style={{color:T.sub2,fontSize:12,marginBottom:18}}>{ses.email}</div>
-      {plan.prioritySupport && (
-        <a href="https://wa.me/message" target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}>
+      {plan.prioritySupport && VIERAFRIK_SUPPORT_WHATSAPP && (
+        <a href={`https://wa.me/${VIERAFRIK_SUPPORT_WHATSAPP}`} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}>
           <div style={{background:`linear-gradient(135deg,${T.gold}12,${T.c1})`,border:`1px solid ${T.gold}33`,borderRadius:14,padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
             <span style={{fontSize:22}}>💬</span>
             <div style={{flex:1}}>
@@ -6537,69 +6595,6 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
 
   // ─── ⚡ ACTION RAPIDE — dans Dashboard (accès scope) ───
   // ─── ⚡ ACTION RAPIDE ───
-  // ── ImportAnnonce — coller un lien pour importer titre+description+image ──
-  function ImportAnnonce({ accent, toast, onImported }) {
-    const [open, setOpen] = useState(false);
-    const [url, setUrl] = useState("");
-    const [loading, setLoading] = useState(false);
-
-    const doImport = async () => {
-      if (!url.trim()) { toast("⚠️ Collez un lien", "err"); return; }
-      setLoading(true);
-      try {
-        // Extraction locale propre — pas d'appel API côté client
-        // On tente de récupérer le titre via un proxy CORS ou on utilise l'URL directement
-        let titre = "";
-        let description = "";
-        try {
-          // Tenter d'extraire le domaine/path comme titre de fallback
-          const u = new URL(url.trim());
-          const pathParts = u.pathname.split("/").filter(Boolean);
-          titre = pathParts[pathParts.length - 1]
-            ? decodeURIComponent(pathParts[pathParts.length - 1]).replace(/[-_]/g, " ")
-            : u.hostname;
-          description = "Annonce importée depuis : " + u.hostname;
-        } catch(e) {
-          description = "Annonce importée depuis : " + url;
-        }
-        onImported({ titre, description, image: null });
-        setOpen(false);
-        setUrl("");
-      } catch(e) {
-        onImported({ titre: "", description: "Annonce importée depuis : " + url, image: null });
-        setOpen(false);
-        setUrl("");
-      }
-      setLoading(false);
-    };
-
-    if (!open) return (
-      <button onClick={() => setOpen(true)} style={{
-        width: "100%", marginTop: 12, padding: "10px", borderRadius: 12,
-        border: `1px dashed ${accent}44`, background: `${accent}08`,
-        color: accent, fontFamily: "inherit", fontWeight: 700, fontSize: 12,
-        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-      }}>
-        🔗 Importer une annonce (Facebook, WhatsApp, site...)
-      </button>
-    );
-
-    return (
-      <div style={{ marginTop: 12, background: T.c1, border: `1px solid ${accent}33`, borderRadius: 14, padding: "1rem" }}>
-        <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 8, color: T.text }}>🔗 Importer une annonce</div>
-        <div style={{ fontSize: 11, color: T.sub2, marginBottom: 10 }}>Collez un lien Facebook, WhatsApp, ou n'importe quel site</div>
-        <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://facebook.com/... ou https://..."
-          style={{ width: "100%", padding: "9px 12px", background: T.c2, border: `1px solid ${T.border}`, borderRadius: 9, color: T.text, fontSize: 13, fontFamily: "inherit", marginBottom: 10 }}/>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={doImport} disabled={loading} style={{ flex: 1, padding: "9px", borderRadius: 9, border: "none", background: accent, color: "#000", fontWeight: 800, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
-            {loading ? "⏳ Import..." : "✅ Importer"}
-          </button>
-          <button onClick={() => setOpen(false)} style={{ flex: 1, padding: "9px", borderRadius: 9, border: `1px solid ${T.border}`, background: T.c2, color: T.text, fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Annuler</button>
-        </div>
-      </div>
-    );
-  }
-
   const PgActionRapide = useCallback(function PgActionRapide(){
     const [screen, setScreen]       = useState(1);
     const [selCat, setSelCat]       = useState(null);
@@ -6611,7 +6606,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
     // v35 — Plusieurs photos au lieu d'une seule (max 5) pour inspirer confiance
     const MAX_PROP_IMAGES = 5;
     const [propImages, setPropImages] = useState([]); // tableau de data-URLs compressées
-    const propPreview = propImages[0] || null; // rétro-compatibilité (ImportAnnonce, validations)
+    const propPreview = propImages[0] || null;
     const addPropImage = (img) => {
       if(!img) return;
       setPropImages(list => list.includes(img) ? list : (list.length>=MAX_PROP_IMAGES ? list : [...list, img]));
@@ -6771,12 +6766,6 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
           ))}
         </div>
         <style>{`@media(max-width:520px){.ar-grid{grid-template-columns:repeat(2,1fr)!important}}`}</style>
-        {/* Import annonce */}
-        <ImportAnnonce accent={accent} toast={toast} onImported={(data)=>{
-          setPropForm(p=>({...p, desc:data.description||"", imageUrl:data.image||""}));
-          if(data.image) addPropImage(data.image);
-          toast("✅ Annonce importée ! Choisissez une catégorie pour publier.");
-        }}/>
       </div>
     );
 
@@ -7031,25 +7020,14 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
   }, [page, accent]);
 
   // ── PgCoach : wrapper stable vers le composant externe CoachIA ──
-  const PgCoach = useCallback(() => (
-    <CoachIA
-      ses={ses}
-      accent={accent}
-      clis={clis}
-      invs={invs}
-      sales={sales}
-      exps={exps}
-      profit={profit}
-      gPct={gPct}
-      goal={goal}
-      setPage={setPage}
-      plan={activePlan}
-    />
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ), [ses.id, accent, clis, invs, sales, exps, profit, gPct, goal, activePlan]);
-
-
-
+  // CoachIA a un état interne (conversation, brouillon) qui doit survivre
+  // aux re-renders de Dashboard. Un wrapper `useCallback` qui retourne du
+  // JSX change de référence à chaque changement de dépendance (clis/invs/
+  // ventes/etc, donc quasiment à chaque action) — React voit alors un
+  // composant "différent" à cette position et démonte/remonte CoachIA,
+  // perdant silencieusement la conversation en cours. On rend <CoachIA/>
+  // directement (type d'élément stable = l'import du module) pour que
+  // seules les props changent, jamais l'identité du composant.
   // Rendu dynamique — les pages lisent txs/clis/invs depuis la closure
   // et se re-rendent à chaque changement de state. C'est le comportement correct.
   const renderActivePage = () => {
@@ -7064,7 +7042,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       case "cli":    return <PgCli/>;
       case "emp":    return <PgEmployees/>;
       case "stats":  return <PgStats/>;
-      case "coach":  return <PgCoach/>;
+      case "coach":  return <CoachIA ses={ses} accent={accent} clis={clis} invs={invs} sales={sales} exps={exps} profit={profit} gPct={gPct} goal={goal} setPage={setPage} plan={activePlan}/>;
       case "plans":  return <PgPlans/>;
       case "prefs":  return <PgParams/>;
       case "ambass": return <PgAmbassadeur/>;

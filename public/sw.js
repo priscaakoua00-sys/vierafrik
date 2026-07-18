@@ -34,11 +34,18 @@ self.addEventListener('activate', (event) => {
 
 // Fetch — Network first, fallback cache
 self.addEventListener('fetch', (event) => {
-  // Ne pas intercepter les requêtes Supabase ou NotchPay
+  const url = new URL(event.request.url);
+
+  // Ne jamais intercepter les appels API (Supabase, NotchPay, Anthropic, et
+  // toutes nos propres routes serverless /api/* — paiement, facture, coach).
+  // Sans cette exclusion, un échec réseau sur un POST /api/fedapay ou
+  // /api/invoice retombait sur le index.html mis en cache (réponse 200 en
+  // HTML au lieu d'une vraie erreur réseau), et le code appelant qui fait
+  // `await res.json()` plantait ou se comportait de façon incohérente —
+  // exactement sur les flux de paiement, là où c'est le plus critique.
   if (
-    event.request.url.includes('supabase.co') ||
-    event.request.url.includes('notchpay.co') ||
-    event.request.url.includes('api.anthropic.com')
+    url.origin !== self.location.origin ||
+    url.pathname.startsWith('/api/')
   ) {
     return;
   }
