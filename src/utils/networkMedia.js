@@ -22,3 +22,16 @@ export function videoExtFromBlob(blob) {
   if (type.includes("mp4")) return "mp4";
   return "webm";
 }
+
+// Supprime un fichier du bucket "network-media" à partir de son URL publique
+// (utilisé quand on remplace ou supprime un média AVANT son expiration
+// naturelle — le nettoyage automatique à 24h est géré séparément côté
+// serveur, ceci couvre les actions immédiates de l'utilisateur).
+export async function deleteNetworkMedia(supabaseClient, publicUrl) {
+  if (!publicUrl) return;
+  const marker = "/network-media/";
+  const idx = publicUrl.indexOf(marker);
+  if (idx === -1) return;
+  const path = decodeURIComponent(publicUrl.slice(idx + marker.length));
+  try { await supabaseClient.storage.from("network-media").remove([path]); } catch(_) {}
+}

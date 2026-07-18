@@ -2,6 +2,9 @@ import { useState, useEffect } from "react";
 import { useViewport } from "../../hooks/useMediaQuery.js";
 import { countryLabel } from "../../data/locations.js";
 import { FORUM_CATEGORIES } from "../../data/networkCategories.js";
+import MyStoriesBar from "./MyStoriesBar.jsx";
+import StoryDetailModal, { MAX_MSG_LEN } from "./StoryDetailModal.jsx";
+import { deleteNetworkMedia } from "../../utils/networkMedia.js";
 
 // ══════════════════════════════════════════════════════════════
 //  🤝  Forum annonces — messages courts, expirent après 24h
@@ -35,14 +38,16 @@ const Composer = ({ accent, T, IS, categorie, setCat, newMsg, setNewMsg, sending
       ))}
     </div>
     <textarea
-      style={{ ...IS, height:80, resize:"none" }}
+      style={{ ...IS, height:110, resize:"none" }}
       placeholder="Ex: Je cherche 2 personnes pour travailler dans ma boutique aujourd'hui à Abidjan…"
       value={newMsg}
       onChange={ev => setNewMsg(ev.target.value)}
-      maxLength={200}
+      maxLength={MAX_MSG_LEN}
     />
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:6 }}>
-      <span style={{ fontSize:10, color:T.sub }}>{newMsg.length}/200</span>
+      <span style={{ fontSize:10, fontWeight:700, color: newMsg.length>=MAX_MSG_LEN ? "#ff2255" : newMsg.length>MAX_MSG_LEN-50 ? "#f0b020" : T.sub }}>
+        {newMsg.length}/{MAX_MSG_LEN}
+      </span>
       <button disabled={sending || !newMsg.trim()} onClick={sendMsg} style={{
         padding:"7px 18px", borderRadius:8, border:"none", cursor:"pointer",
         fontWeight:700, fontSize:12, background:accent, color:T.ink,
@@ -157,6 +162,7 @@ export default function NetworkForum({ user, supabase, accent = "#00d478", toast
   const [sending, setSending]   = useState(false);
   const [loading, setLoading]   = useState(true);
   const [selectedMsg, setSelectedMsg] = useState(null);
+  const [justPublished, setJustPublished] = useState(null);
 
   const viewport = useViewport();
   const isDesktop = viewport === "desktop";
@@ -202,7 +208,7 @@ export default function NetworkForum({ user, supabase, accent = "#00d478", toast
   const sendMsg = async () => {
     if (!newMsg.trim()) return;
     if (newMsg.trim().length < 5) { toast?.("⚠️ Message trop court", "warn"); return; }
-    if (newMsg.trim().length > 200) { toast?.("⚠️ Maximum 200 caractères", "warn"); return; }
+    if (newMsg.trim().length > MAX_MSG_LEN) { toast?.(`⚠️ Maximum ${MAX_MSG_LEN} caractères`, "warn"); return; }
     if (!supabase) { toast?.("❌ Connexion Supabase manquante", "err"); return; }
 
     setSending(true);
@@ -221,10 +227,16 @@ export default function NetworkForum({ user, supabase, accent = "#00d478", toast
       };
       const { data, error } = await s.from("reseau_messages").insert(msg).select();
       if (error) throw error;
-      setMsgs(p => [{ ...msg, id: data?.[0]?.id || Date.now() }, ...p]);
+      const saved = { ...msg, id: data?.[0]?.id || Date.now() };
+      setMsgs(p => [saved, ...p]);
       setNewMsg("");
       setCat("all");
-      toast?.("✅ Message publié — visible 24h par tous les commerçants VierAfrik !", "ok");
+      // Réinitialiser le filtre — sinon un message publié dans une catégorie
+      // différente du filtre actif reste invisible pour son propre auteur,
+      // même si tout le monde d'autre le voit (c'est ce qui donnait
+      // l'impression que la publication avait disparu).
+      setFiltreId("all");
+      setJustPublished(saved);
     } catch (e) {
       toast?.("❌ Erreur envoi — vérifiez votre connexion", "err");
     } finally {
@@ -235,13 +247,36 @@ export default function NetworkForum({ user, supabase, accent = "#00d478", toast
   // ── Supprimer son propre message ──
   const deleteMsg = async (id) => {
     if (!supabase) return;
+    const target = msgs.find(m => m.id === id);
     try {
       const s = await supabase();
-      await s.from("reseau_messages").delete().eq("id", id).eq("user_id", user?.id);
+      const { error } = await s.from("reseau_messages").delete().eq("id", id).eq("user_id", user?.id);
+      if (error) throw error;
       setMsgs(p => p.filter(m => m.id !== id));
+      // Nettoyage immédiat du média associé — pas besoin d'attendre le
+      // passage automatique côté serveur pour une suppression volontaire.
+      if (target?.image_url) deleteNetworkMedia(s, target.image_url);
+      if (target?.video_url) deleteNetworkMedia(s, target.video_url);
+      if (target?.thumbnail_url) deleteNetworkMedia(s, target.thumbnail_url);
       toast?.("🗑️ Message supprimé", "ok");
     } catch (e) {
       toast?.("❌ Erreur suppression", "err");
+    }
+  };
+
+  // ── Modifier son propre message ──
+  const updateMsg = async (id, updates) => {
+    if (!supabase) return false;
+    try {
+      const s = await supabase();
+      const { error } = await s.from("reseau_messages").update(updates).eq("id", id).eq("user_id", user?.id);
+      if (error) throw error;
+      setMsgs(p => p.map(m => m.id === id ? { ...m, ...updates } : m));
+      toast?.("✅ Story modifiée !", "ok");
+      return true;
+    } catch (e) {
+      toast?.("❌ Modification échouée — réessaie", "err");
+      return false;
     }
   };
 
@@ -261,13 +296,37 @@ export default function NetworkForum({ user, supabase, accent = "#00d478", toast
     return `Expire dans ${h}h${m > 0 ? m+"min" : ""}`;
   };
 
+  const isExpired = (m) => {
+    const ref = m.expires_at ? new Date(m.expires_at).getTime() : (new Date(m.created_at).getTime() + 24*60*60*1000);
+    return Date.now() >= ref;
+  };
+
   const msgsFiltres = msgs.filter(m => filtreId === "all" ? true : m.categorie === filtreId);
+  const myMsgs = msgs.filter(m => m.user_id === user?.id && !isExpired(m));
 
   return (
     <div style={{ fontFamily:"'Inter','Segoe UI',system-ui,sans-serif", color:T.text }}>
       <div style={{ background:`${accent}12`, border:`1px solid ${accent}22`, borderRadius:8, padding:"6px 12px", marginBottom:18, fontSize:11, color:accent, fontWeight:600 }}>
         ⏱ Les messages disparaissent automatiquement après 24h
       </div>
+
+      {/* ── Confirmation post-publication ── */}
+      {justPublished && (
+        <div style={{ background:`linear-gradient(135deg,${accent}20,${T.c1})`, border:`1px solid ${accent}55`, borderRadius:14, padding:"12px 16px", marginBottom:16, display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap" }}>
+          <span style={{ fontSize:12.5, fontWeight:700, color:accent }}>✅ Story publiée — visible par tous les commerçants VierAfrik !</span>
+          <div style={{ display:"flex", gap:8 }}>
+            <button onClick={() => { setSelectedMsg(justPublished); setJustPublished(null); }} style={{ padding:"7px 14px", borderRadius:9, border:"none", background:accent, color:T.ink, cursor:"pointer", fontFamily:"inherit", fontWeight:800, fontSize:11 }}>
+              👁️ Voir ma story
+            </button>
+            <button onClick={() => setJustPublished(null)} style={{ padding:"7px 10px", borderRadius:9, border:`1px solid ${T.border}`, background:"transparent", color:T.sub2, cursor:"pointer", fontFamily:"inherit", fontWeight:600, fontSize:11 }}>
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Vos stories — toujours en premier, jamais masqué par le filtre ── */}
+      <MyStoriesBar myMsgs={myMsgs} accent={accent} T={T} timeLeft={timeLeft} onOpen={setSelectedMsg}/>
 
       {isDesktop ? (
         <div style={{ display:"flex", gap:24, alignItems:"flex-start" }}>
@@ -291,88 +350,24 @@ export default function NetworkForum({ user, supabase, accent = "#00d478", toast
         </div>
       )}
 
-      {/* ── MODALE DÉTAIL ANNONCE ── */}
-      {selectedMsg && (() => {
-        const m = selectedMsg;
-        const isOwn = m.user_id === user?.id;
-        const catInfo = FORUM_CATEGORIES.find(c => c.id === m.categorie) || FORUM_CATEGORIES[0];
-        const initials = (m.user_name||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
-        const phone = (m.phone||"").replace(/\D/g,"");
-        return (
-          <div onClick={() => setSelectedMsg(null)} style={{
-            position:"fixed", inset:0, background:"rgba(0,0,0,.88)", zIndex:950,
-            display:"flex", alignItems: isDesktop ? "center" : "flex-end", justifyContent:"center",
-            backdropFilter:"blur(14px)", padding: isDesktop ? "2rem" : 0,
-          }}>
-            <div onClick={e => e.stopPropagation()} style={{
-              background:`linear-gradient(160deg,${T.c1},${T.c2})`, border:`1px solid ${accent}33`,
-              borderRadius: isDesktop ? 22 : "24px 24px 0 0",
-              padding:"1.6rem 1.4rem 2rem", width:"100%", maxWidth: isDesktop ? 480 : 520,
-              maxHeight:"88vh", overflowY:"auto", boxShadow:"0 -20px 60px rgba(0,0,0,.9)",
-              animation: isDesktop ? "pop .25s cubic-bezier(.34,1.56,.64,1)" : "slideUp .28s cubic-bezier(.34,1.56,.64,1)",
-              color:"#dff0ff", fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",
-            }}>
-              {!isDesktop && (
-                <div style={{ display:"flex", justifyContent:"center", marginBottom:16 }}>
-                  <div style={{ width:40, height:4, borderRadius:4, background:"rgba(255,255,255,.15)" }}/>
-                </div>
-              )}
-              <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:16, background:T.c3, border:`1px solid ${T.border}`, borderRadius:16, padding:"14px" }}>
-                <div style={{ width:52, height:52, borderRadius:16, flexShrink:0, background:`linear-gradient(135deg,${accent},#00bfcc)`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:18, color:"#000", boxShadow:`0 0 20px ${accent}44` }}>
-                  {initials}
-                </div>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontWeight:800, fontSize:16, letterSpacing:"-.02em" }}>
-                    {m.user_name||"Commerçant"}
-                    {isOwn && <span style={{ fontSize:10, color:accent, marginLeft:6, fontWeight:700 }}>• Vous</span>}
-                  </div>
-                  {m.business && <div style={{ fontSize:12, color:"#80a8c8", marginTop:2 }}>🏢 {m.business}</div>}
-                  <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:5, flexWrap:"wrap" }}>
-                    {m.pays && <span style={{ fontSize:10, color:"#4a7090" }}>{countryLabel(m.pays)||("🌍 "+m.pays)}</span>}
-                    {m.categorie && m.categorie !== "all" && (
-                      <span style={{ background:`${accent}20`, borderRadius:20, padding:"2px 8px", fontSize:9, fontWeight:700, color:accent }}>{catInfo.ic} {catInfo.label}</span>
-                    )}
-                    <span style={{ fontSize:10, color:"#4a7090" }}>🕒 {timeAgo(m.created_at)}</span>
-                  </div>
-                </div>
-              </div>
-              <div style={{ background:T.c3, border:`1px solid ${T.border}`, borderRadius:14, padding:"14px 16px", marginBottom:14 }}>
-                <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:".07em", color:"#4a7090", marginBottom:8 }}>📢 Annonce complète</div>
-                <div style={{ fontSize:14, lineHeight:1.75, color:"#dff0ff", whiteSpace:"pre-wrap" }}>{m.message}</div>
-              </div>
-              <div style={{ fontSize:11, color:"#4a7090", textAlign:"center", marginBottom:16 }}>⏱ {timeLeft(m.created_at)}</div>
-              {!isOwn ? (
-                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                  {phone ? (
-                    <>
-                      <a href={`tel:${phone}`} style={{ textDecoration:"none" }}>
-                        <button style={{ width:"100%", padding:"14px", borderRadius:14, border:"none", background:`linear-gradient(135deg,${accent},#00bfcc)`, color:"#000", fontFamily:"inherit", fontWeight:800, fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:`0 6px 20px ${accent}44` }}>
-                          📞 Appeler {m.user_name?.split(" ")[0]||""}
-                        </button>
-                      </a>
-                      <a href={`https://wa.me/${phone}?text=${encodeURIComponent(`Bonjour ${m.user_name||""}👋\n\nJ'ai vu votre annonce sur VierAfrik :\n"${(m.message||"").slice(0,120)}"\n\nJe suis intéressé(e), pouvons-nous discuter ?`)}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration:"none" }}>
-                        <button style={{ width:"100%", padding:"14px", borderRadius:14, border:"none", background:"#25D366", color:"#fff", fontFamily:"inherit", fontWeight:800, fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:"0 6px 20px rgba(37,211,102,.4)" }}>
-                          💬 WhatsApp {m.user_name?.split(" ")[0]||""}
-                        </button>
-                      </a>
-                    </>
-                  ) : (
-                    <div style={{ background:"rgba(240,176,32,.08)", border:"1px solid rgba(240,176,32,.22)", borderRadius:12, padding:"12px 14px", fontSize:12, color:"#f0b020", textAlign:"center", lineHeight:1.6 }}>
-                      ℹ️ Numéro non renseigné — ce commerçant n'a pas ajouté son téléphone à son profil.
-                    </div>
-                  )}
-                  <button onClick={() => setSelectedMsg(null)} style={{ width:"100%", padding:"11px", borderRadius:12, border:"1px solid rgba(255,255,255,.1)", background:"transparent", color:"#4a7090", fontFamily:"inherit", fontWeight:600, fontSize:13, cursor:"pointer" }}>Fermer</button>
-                </div>
-              ) : (
-                <div style={{ display:"flex", gap:10 }}>
-                  <button onClick={() => { deleteMsg(m.id); setSelectedMsg(null); }} style={{ flex:1, padding:"11px", borderRadius:12, border:"1px solid rgba(255,34,85,.3)", background:"rgba(255,34,85,.1)", color:"#ff2255", fontFamily:"inherit", fontWeight:700, fontSize:13, cursor:"pointer" }}>🗑️ Supprimer</button>
-                  <button onClick={() => setSelectedMsg(null)} style={{ flex:1, padding:"11px", borderRadius:12, border:"1px solid rgba(255,255,255,.1)", background:"transparent", color:"#4a7090", fontFamily:"inherit", fontWeight:600, fontSize:13, cursor:"pointer" }}>Fermer</button>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
+      {/* ── MODALE DÉTAIL / GESTION D'UNE STORY ── */}
+      {selectedMsg && (
+        <StoryDetailModal
+          msg={selectedMsg}
+          isDesktop={isDesktop}
+          accent={accent}
+          T={T}
+          user={user}
+          timeAgo={timeAgo}
+          timeLeft={timeLeft}
+          isExpired={isExpired}
+          onClose={() => setSelectedMsg(null)}
+          onDelete={deleteMsg}
+          onUpdate={updateMsg}
+          supabase={supabase}
+          toast={toast}
+        />
+      )}
     </div>
   );
 }
