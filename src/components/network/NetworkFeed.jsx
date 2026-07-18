@@ -2,10 +2,12 @@ import { useState, useEffect, useCallback } from "react";
 import LocationPicker from "../LocationPicker.jsx";
 import FeedCard from "./FeedCard.jsx";
 import SkeletonCard from "./SkeletonCard.jsx";
+import CameraCapture from "./CameraCapture.jsx";
 import { useViewport } from "../../hooks/useMediaQuery.js";
 import { COUNTRIES, getCitiesForCountry, normalizeLegacyCountry } from "../../data/locations.js";
 import { FEED_CATEGORIES, FEED_CATEGORY_IMAGES } from "../../data/networkCategories.js";
 import { DEMO_NETWORK_POSTS, DEMO_VISIBLE_THRESHOLD } from "../../data/demoNetworkPosts.js";
+import { uploadNetworkMedia } from "../../utils/networkMedia.js";
 
 // ══════════════════════════════════════════════════════════════
 //  🗺️  Réseau visuel — feed de profils commerçants
@@ -180,42 +182,23 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
     finally { setSaving(false); }
   };
 
-  // ── Image upload avec compression + envoi vers Supabase Storage ──
-  // Remplace l'ancien stockage base64-dans-la-colonne-texte : l'image
-  // compressée est envoyée dans le bucket "network-media" et seule son
-  // URL publique (courte) est stockée en base — chargement plus rapide,
-  // pas de limite de taille de ligne Postgres, et ça pose l'infrastructure
-  // qui servira à la vidéo courte dans une étape suivante.
-  const handleImg = (e) => {
-    const f = e.target.files[0]; if (!f) return;
-    const img = new Image();
-    const url = URL.createObjectURL(f);
-    img.onload = () => {
-      const MAX=800;
-      let w=img.width,h=img.height;
-      if(w>MAX||h>MAX){const r=Math.min(MAX/w,MAX/h);w=Math.round(w*r);h=Math.round(h*r);}
-      const canvas=document.createElement("canvas");
-      canvas.width=w;canvas.height=h;
-      canvas.getContext("2d").drawImage(img,0,0,w,h);
-      URL.revokeObjectURL(url);
-      canvas.toBlob(async (blob) => {
-        if (!blob) { toast?.("❌ Erreur de traitement de l'image","err"); return; }
-        setUploadingImg(true);
-        try {
-          const s = await supabase();
-          const path = `${user?.id}/profile-${Date.now()}.jpg`;
-          const { error } = await s.storage.from("network-media").upload(path, blob, { contentType:"image/jpeg", upsert:true });
-          if (error) throw error;
-          const { data } = s.storage.from("network-media").getPublicUrl(path);
-          setPreviewImg(data.publicUrl);
-        } catch(err) {
-          toast?.("❌ Envoi de la photo échoué — réessaie","err");
-        } finally {
-          setUploadingImg(false);
-        }
-      }, "image/jpeg", 0.72);
-    };
-    img.src=url;
+  // ── Photo de profil — caméra intégrée (ou galerie) + envoi Storage ──
+  // CameraCapture fournit déjà un blob compressé (photo seule ici — un
+  // profil n'a pas besoin de vidéo) ; on l'envoie tel quel dans le bucket
+  // "network-media" et on ne stocke que l'URL publique en base.
+  const [showPhotoCapture, setShowPhotoCapture] = useState(false);
+  const handleProfilePhoto = async (result) => {
+    setShowPhotoCapture(false);
+    setUploadingImg(true);
+    try {
+      const s = await supabase();
+      const url = await uploadNetworkMedia(s, user?.id, result.blob, { folder:"profile", ext:"jpg", contentType:"image/jpeg" });
+      setPreviewImg(url);
+    } catch(err) {
+      toast?.("❌ Envoi de la photo échoué — réessaie","err");
+    } finally {
+      setUploadingImg(false);
+    }
   };
 
   // ── Noter ──
@@ -276,21 +259,30 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
               <button onClick={()=>setEditOpen(false)} style={{ background:Tc.c3, border:`1px solid ${Tc.border}`, color:Tc.sub2, width:28, height:28, borderRadius:"50%", cursor:"pointer", fontSize:13 }}>✕</button>
             </div>
             {/* Photo profil */}
-            <label style={{ display:"block", cursor:"pointer", marginBottom:12 }}>
+            <div style={{ marginBottom:12 }}>
               <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:".06em", color:Tc.sub, marginBottom:5 }}>📷 Photo de votre commerce</div>
-              <input type="file" accept="image/*" onChange={handleImg} disabled={uploadingImg} style={{ display:"none" }}/>
-              {uploadingImg ? (
+              {showPhotoCapture ? (
+                <CameraCapture
+                  theme={Tc} accent={accent} allowVideo={false}
+                  onDone={handleProfilePhoto}
+                  onCancel={() => setShowPhotoCapture(false)}
+                />
+              ) : uploadingImg ? (
                 <div style={{ width:"100%", height:150, borderRadius:14, border:`2px dashed ${accent}55`, background:Tc.c2, display:"flex", alignItems:"center", justifyContent:"center", gap:8, color:accent, fontSize:12, fontWeight:600 }}>
                   ⏳ Envoi de la photo…
                 </div>
-              ) : previewImg||editForm.image_url ? (
-                <img src={previewImg||editForm.image_url} alt="preview" style={{ width:"100%", height:150, objectFit:"cover", borderRadius:14, border:`2px solid ${accent}55` }}/>
               ) : (
-                <div style={{ width:"100%", height:110, borderRadius:14, border:`2px dashed ${Tc.border}`, background:Tc.c2, display:"flex", alignItems:"center", justifyContent:"center", gap:8, color:Tc.sub, fontSize:12, fontWeight:600 }}>
-                  📷 Ajouter une photo
+                <div onClick={() => setShowPhotoCapture(true)} style={{ cursor:"pointer" }}>
+                  {previewImg||editForm.image_url ? (
+                    <img src={previewImg||editForm.image_url} alt="preview" style={{ width:"100%", height:150, objectFit:"cover", borderRadius:14, border:`2px solid ${accent}55` }}/>
+                  ) : (
+                    <div style={{ width:"100%", height:110, borderRadius:14, border:`2px dashed ${Tc.border}`, background:Tc.c2, display:"flex", alignItems:"center", justifyContent:"center", gap:8, color:Tc.sub, fontSize:12, fontWeight:600 }}>
+                      📷 Ajouter une photo
+                    </div>
+                  )}
                 </div>
               )}
-            </label>
+            </div>
             <div style={{ marginBottom:10 }}>
               <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Activité *</label>
               <input style={IS2} placeholder="Coiffure, Épicerie…" value={editForm.activite} onChange={e=>setEditForm(f=>({...f,activite:e.target.value}))}/>

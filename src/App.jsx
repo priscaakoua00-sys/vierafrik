@@ -8,6 +8,8 @@ import CoachIA from "./components/coach/CoachIA.jsx";
 import { PLANS, INF, TEST_MODE, TRIAL_DAYS, TRIAL_PLAN, ROLE_LABELS } from "./data/pricing.js";
 import { downloadPdfFromHtml } from "./utils/pdfExport.js";
 import html2canvas from "html2canvas";
+import CameraCapture from "./components/network/CameraCapture.jsx";
+import { uploadNetworkMedia, videoExtFromBlob } from "./utils/networkMedia.js";
 
 // ══════════════════════════════════════════════════════
 // App v34 — Freemium découverte (base v31 intacte) :
@@ -6612,6 +6614,11 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       setPropImages(list => list.includes(img) ? list : (list.length>=MAX_PROP_IMAGES ? list : [...list, img]));
     };
     const removePropImage = (idx) => setPropImages(list => list.filter((_,i)=>i!==idx));
+    // Vidéo courte (optionnelle, alternative aux photos — une annonce a
+    // soit des photos, soit une vidéo, jamais besoin de mélanger).
+    const [propVideo, setPropVideo]     = useState(null); // { url, thumbnailUrl, durationSec }
+    const [captureFor, setCaptureFor]   = useState(null); // "photo" | "video" | null
+    const [uploadingMedia, setUploadingMedia] = useState(false);
     const [filterCity, setFilterCity]   = useState("");
     const [filterCat,  setFilterCat]    = useState("");
     const [recording, setRecording]     = useState(false);
@@ -6661,35 +6668,51 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
     const trackAR=async(type,action="")=>{
       try{const s=await getSupa();await s.from("quick_events").insert({id:xid(),type,category:selCat,city:propForm.city||filterCity||"",action,timestamp:new Date().toISOString()});}catch(e){}
     };
-    const handleImage=(e)=>{
-      const f=e.target.files[0];if(!f)return;
-      if(propImages.length>=MAX_PROP_IMAGES){toast(`📷 Maximum ${MAX_PROP_IMAGES} photos`,"warn");e.target.value="";return;}
-      // Compression canvas — max 800px, qualité 0.72 → ~50-100KB au lieu de 1-5MB
-      const img=new Image();
-      const url=URL.createObjectURL(f);
-      img.onload=()=>{
-        const MAX=800;
-        let w=img.width,h=img.height;
-        if(w>MAX||h>MAX){const r=Math.min(MAX/w,MAX/h);w=Math.round(w*r);h=Math.round(h*r);}
-        const canvas=document.createElement("canvas");
-        canvas.width=w;canvas.height=h;
-        canvas.getContext("2d").drawImage(img,0,0,w,h);
-        const compressed=canvas.toDataURL("image/jpeg",0.72);
-        URL.revokeObjectURL(url);
-        addPropImage(compressed);
-        setPropForm(p=>({...p,imageUrl:compressed,imageFile:f}));
-        e.target.value=""; // permet de re-sélectionner le même fichier / en ajouter un autre juste après
-      };
-      img.src=url;
+    // ── Photo(s) — caméra intégrée + envoi Storage (remplace l'ancien base64) ──
+    const handlePhotoCaptureDone=async(result)=>{
+      setCaptureFor(null);
+      if(propImages.length>=MAX_PROP_IMAGES){toast(`📷 Maximum ${MAX_PROP_IMAGES} photos`,"warn");return;}
+      setUploadingMedia(true);
+      try{
+        const s=await getSupa();
+        const url=await uploadNetworkMedia(s,ses?.id,result.blob,{folder:"posts",ext:"jpg",contentType:"image/jpeg"});
+        addPropImage(url);
+        setPropForm(p=>({...p,imageUrl:p.imageUrl||url}));
+      }catch(e){toast("❌ Envoi de la photo échoué — réessaie","err");}
+      finally{setUploadingMedia(false);}
+    };
+    // ── Vidéo courte — alternative aux photos ──
+    const handleVideoCaptureDone=async(result)=>{
+      setCaptureFor(null);
+      setUploadingMedia(true);
+      try{
+        const s=await getSupa();
+        const videoUrl=await uploadNetworkMedia(s,ses?.id,result.blob,{folder:"posts",ext:videoExtFromBlob(result.blob),contentType:result.blob.type||"video/webm"});
+        let thumbUrl="";
+        if(result.thumbnailBlob){
+          thumbUrl=await uploadNetworkMedia(s,ses?.id,result.thumbnailBlob,{folder:"posts",ext:"jpg",contentType:"image/jpeg"});
+        }
+        setPropVideo({url:videoUrl,thumbnailUrl:thumbUrl,durationSec:result.durationSec});
+        toast("✅ Vidéo ajoutée !");
+      }catch(e){toast("❌ Envoi de la vidéo échoué — réessaie","err");}
+      finally{setUploadingMedia(false);}
     };
     const handlePublish=async()=>{
       if(!propForm.phone){toast("📞 Numéro obligatoire","err");return;}
-      if(propImages.length===0){toast("📷 Au moins une photo obligatoire","err");return;}
+      if(propImages.length===0&&!propVideo){toast("📷 Au moins une photo ou une vidéo obligatoire","err");return;}
       if(!propForm.city){toast("📍 Ville obligatoire","err");return;}
       setLoadingP(true);
+      const basePayload={
+        id:xid(),user_id:ses?.id||"",category:selCat,country:propForm.country,city:propForm.city,
+        phone:propForm.phone,description:propForm.desc||"",
+        image_url:propImages[0]||"",
+        media_type:propVideo?"video":"photo",
+        video_url:propVideo?.url||null, video_thumbnail_url:propVideo?.thumbnailUrl||null, video_duration_seconds:propVideo?.durationSec||null,
+        created_at:new Date().toISOString(),
+      };
       try{
         const s=await getSupa();
-        await s.from("quick_posts").insert({id:xid(),user_id:ses?.id||"",category:selCat,country:propForm.country,city:propForm.city,phone:propForm.phone,description:propForm.desc||"",image_url:propImages[0],image_urls:propImages,created_at:new Date().toISOString()});
+        await s.from("quick_posts").insert({...basePayload,image_urls:propImages});
         await trackAR("propose","publish");
         setPublished(true);
       }catch(e){
@@ -6697,7 +6720,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
         if(String(e?.message||"").includes("image_urls")){
           try{
             const s=await getSupa();
-            await s.from("quick_posts").insert({id:xid(),user_id:ses?.id||"",category:selCat,country:propForm.country,city:propForm.city,phone:propForm.phone,description:propForm.desc||"",image_url:propImages[0],created_at:new Date().toISOString()});
+            await s.from("quick_posts").insert(basePayload);
             await trackAR("propose","publish");
             setPublished(true);
           }catch(e2){toast("Erreur — réessayez","err");}
@@ -6724,7 +6747,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
     const doWAAR=(phone)=>{trackAR("search","whatsapp");window.open(`https://wa.me/${cleanP(phone)}`,"_blank");};
     const doVideoAR=(phone)=>{trackAR("search","video");window.open(`https://wa.me/${cleanP(phone)}?text=Je%20voudrais%20faire%20un%20appel%20vid%C3%A9o`,"_blank");};
     const doVocalAR=()=>{trackAR("search","vocal");recording?stopRec():startRecording();};
-    const resetAR=()=>{setScreen(1);setSelCat(null);setMode(null);setPropForm({city:"",phone:"",desc:"",imageUrl:"",imageFile:null});setPropImages([]);setPublished(false);setAudioBlob(null);};
+    const resetAR=()=>{setScreen(1);setSelCat(null);setMode(null);setPropForm({city:"",phone:"",desc:"",imageUrl:"",imageFile:null});setPropImages([]);setPropVideo(null);setCaptureFor(null);setPublished(false);setAudioBlob(null);};
 
     const IFS={width:"100%",padding:"11px 14px",background:T.c3,border:`1px solid ${T.border}`,borderRadius:11,color:T.text,fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",fontSize:13,outline:"none",marginTop:4,transition:"all .2s"};
     const ActionBtn=({label,ic,col,fn})=>(
@@ -6829,35 +6852,63 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
             <div style={{fontWeight:900,fontSize:22,letterSpacing:"-.04em",marginBottom:4}}>📢 Mon <span style={{color:accent}}>service</span></div>
             <div style={{fontSize:12,color:T.sub2}}>Remplis en 30 secondes — tes clients te trouvent</div>
           </div>
-          {/* Photo(s) */}
+          {/* Photo(s) OU vidéo courte — une annonce a l'un ou l'autre, jamais les deux */}
+          {!propVideo && (
           <div style={{marginBottom:13}}>
             <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:T.sub,marginBottom:5}}>
-              📷 Photos <span style={{color:T.red}}>*</span> <span style={{color:T.sub2,textTransform:"none",fontWeight:500}}>({propImages.length}/{MAX_PROP_IMAGES} · plus il y en a, plus ça inspire confiance)</span>
+              📷 Photos {propImages.length===0 && <span style={{color:T.red}}>*</span>} <span style={{color:T.sub2,textTransform:"none",fontWeight:500}}>({propImages.length}/{MAX_PROP_IMAGES} · plus il y en a, plus ça inspire confiance)</span>
             </div>
-            {/* Input file caché — déclenché SEULEMENT par le bouton */}
-            <input id="photo-upload" type="file" accept="image/*" onChange={handleImage} style={{display:"none"}}/>
-            {propImages.length>0 && (
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:propImages.length<MAX_PROP_IMAGES?8:0}}>
-                {propImages.map((img,idx)=>(
-                  <div key={idx} style={{position:"relative"}}>
-                    <img src={img} alt={`photo ${idx+1}`} style={{width:"100%",height:88,objectFit:"cover",borderRadius:12,border:`2px solid ${idx===0?accent+"88":T.border}`,display:"block"}}/>
-                    {idx===0&&<span style={{position:"absolute",bottom:4,left:4,background:"rgba(0,0,0,.7)",color:"#fff",fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:6}}>Principale</span>}
-                    <button type="button" onClick={(e)=>{e.stopPropagation();e.preventDefault();removePropImage(idx);}}
-                      style={{position:"absolute",top:5,right:5,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+            {captureFor==="photo" ? (
+              <CameraCapture theme={T} accent={accent} allowVideo={false}
+                onDone={handlePhotoCaptureDone} onCancel={()=>setCaptureFor(null)}/>
+            ) : (
+              <>
+                {propImages.length>0 && (
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:propImages.length<MAX_PROP_IMAGES?8:0}}>
+                    {propImages.map((img,idx)=>(
+                      <div key={idx} style={{position:"relative"}}>
+                        <img src={img} alt={`photo ${idx+1}`} style={{width:"100%",height:88,objectFit:"cover",borderRadius:12,border:`2px solid ${idx===0?accent+"88":T.border}`,display:"block"}}/>
+                        {idx===0&&<span style={{position:"absolute",bottom:4,left:4,background:"rgba(0,0,0,.7)",color:"#fff",fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:6}}>Principale</span>}
+                        <button type="button" onClick={(e)=>{e.stopPropagation();e.preventDefault();removePropImage(idx);}}
+                          style={{position:"absolute",top:5,right:5,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )}
+                {propImages.length<MAX_PROP_IMAGES && (
+                  <button type="button" disabled={uploadingMedia} onClick={(e)=>{e.stopPropagation();e.preventDefault();setCaptureFor("photo");}}
+                    style={{width:"100%",height:propImages.length>0?64:120,borderRadius:14,border:`2px dashed ${T.border}`,background:T.c2,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:propImages.length>0?2:8,color:T.sub,cursor:uploadingMedia?"not-allowed":"pointer",fontFamily:"inherit"}}>
+                    <span style={{fontSize:propImages.length>0?20:36}}>{uploadingMedia?"⏳":"📷"}</span>
+                    <span style={{fontSize:12,fontWeight:600}}>{uploadingMedia?"Envoi…":propImages.length>0?"Ajouter une autre photo":"Appuyer pour photographier"}</span>
+                  </button>
+                )}
+              </>
             )}
-            {propImages.length<MAX_PROP_IMAGES && (
-              <button type="button" onClick={(e)=>{e.stopPropagation();e.preventDefault();document.getElementById("photo-upload").click();}}
-                style={{width:"100%",height:propImages.length>0?64:120,borderRadius:14,border:`2px dashed ${T.border}`,background:T.c2,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:propImages.length>0?2:8,color:T.sub,cursor:"pointer",fontFamily:"inherit"}}>
-                <span style={{fontSize:propImages.length>0?20:36}}>📷</span>
-                <span style={{fontSize:12,fontWeight:600}}>{propImages.length>0?"Ajouter une autre photo":"Appuyer pour photographier"}</span>
+          </div>
+          )}
+          {/* Vidéo courte — alternative aux photos, cachée dès qu'une photo est ajoutée */}
+          {propImages.length===0 && (
+          <div style={{marginBottom:13}}>
+            <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:T.sub,marginBottom:5}}>🎥 Ou une vidéo courte (optionnel)</div>
+            {captureFor==="video" ? (
+              <CameraCapture theme={T} accent={accent} allowVideo={true} maxVideoSec={15}
+                onDone={handleVideoCaptureDone} onCancel={()=>setCaptureFor(null)}/>
+            ) : propVideo ? (
+              <div style={{position:"relative"}}>
+                <video src={propVideo.url} controls playsInline style={{width:"100%",maxHeight:200,borderRadius:14,border:`2px solid ${accent}55`,display:"block"}}/>
+                <button type="button" onClick={()=>setPropVideo(null)}
+                  style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:20,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>✕ Retirer</button>
+              </div>
+            ) : (
+              <button type="button" disabled={uploadingMedia} onClick={()=>setCaptureFor("video")}
+                style={{width:"100%",height:64,borderRadius:14,border:`2px dashed ${T.border}`,background:T.c2,display:"flex",alignItems:"center",justifyContent:"center",gap:8,color:T.sub,cursor:uploadingMedia?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:600,fontSize:12}}>
+                {uploadingMedia?"⏳ Envoi…":"🎥 Filmer un aperçu (15s max)"}
               </button>
             )}
           </div>
+          )}
           {/* Images professionnelles — COMPLÈTEMENT séparées de l'input file */}
-          {propImages.length<MAX_PROP_IMAGES && catObj && (
+          {!propVideo && propImages.length<MAX_PROP_IMAGES && catObj && (
             <div style={{marginBottom:13}}>
               <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:T.sub,marginBottom:6}}>🖼️ Ou ajouter une image professionnelle</div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
@@ -6921,9 +6972,9 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
             <label style={{display:"block",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:T.sub,marginBottom:5}}>✏️ Description (optionnel)</label>
             <textarea style={{...IFS,height:68,resize:"vertical"}} placeholder="Ex : Coiffure femme à domicile, disponible matin et soir…" value={propForm.desc} onChange={e=>setPropForm(f=>({...f,desc:e.target.value}))}/>
           </div>
-          <button type="button" onClick={(e)=>{e.stopPropagation();e.preventDefault();handlePublish();}} disabled={loadingP}
-            style={{width:"100%",padding:"14px",borderRadius:13,border:"none",background:loadingP?T.c3:`linear-gradient(135deg,${accent},${T.teal})`,color:loadingP?T.sub:T.ink,fontFamily:"inherit",fontWeight:900,fontSize:15,cursor:loadingP?"not-allowed":"pointer",letterSpacing:"-.02em",boxShadow:loadingP?"none":`0 8px 28px ${accent}35`,transition:"all .2s"}}>
-            {loadingP?"⏳ Publication…":"🚀 Publier maintenant"}
+          <button type="button" onClick={(e)=>{e.stopPropagation();e.preventDefault();handlePublish();}} disabled={loadingP||uploadingMedia}
+            style={{width:"100%",padding:"14px",borderRadius:13,border:"none",background:(loadingP||uploadingMedia)?T.c3:`linear-gradient(135deg,${accent},${T.teal})`,color:(loadingP||uploadingMedia)?T.sub:T.ink,fontFamily:"inherit",fontWeight:900,fontSize:15,cursor:(loadingP||uploadingMedia)?"not-allowed":"pointer",letterSpacing:"-.02em",boxShadow:(loadingP||uploadingMedia)?"none":`0 8px 28px ${accent}35`,transition:"all .2s"}}>
+            {uploadingMedia?"⏳ Envoi du média…":loadingP?"⏳ Publication…":"🚀 Publier maintenant"}
           </button>
         </div>
       );
@@ -6965,7 +7016,14 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
               const c=AR_CATS.find(x=>x.id===p.category);
               return(
                 <div key={p.id} style={{background:`linear-gradient(135deg,${T.c1},${T.c2})`,border:`1px solid ${T.border}`,borderRadius:16,overflow:"hidden",marginBottom:12}}>
-                  {(p.image_urls&&p.image_urls.length>1) ? (
+                  {p.media_type==="video"&&p.video_url ? (
+                    <div style={{position:"relative"}}>
+                      <video src={p.video_url} poster={p.video_thumbnail_url||undefined} controls playsInline style={{width:"100%",height:155,objectFit:"cover",display:"block",background:"#000"}}/>
+                      {p.video_duration_seconds ? (
+                        <span style={{position:"absolute",bottom:8,right:8,background:"rgba(0,0,0,.75)",color:"#fff",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,pointerEvents:"none"}}>🎥 {p.video_duration_seconds}s</span>
+                      ) : null}
+                    </div>
+                  ) : (p.image_urls&&p.image_urls.length>1) ? (
                     <div style={{display:"flex",gap:2,overflowX:"auto",scrollSnapType:"x mandatory"}}>
                       {p.image_urls.map((im,i)=>(
                         <img key={i} src={im} alt="service" style={{minWidth:"100%",width:"100%",height:155,objectFit:"cover",display:"block",scrollSnapAlign:"start",flexShrink:0}}/>
