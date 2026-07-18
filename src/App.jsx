@@ -6397,7 +6397,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       label: "Bouclier",
       render: () => (
         <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:8 }}>
-          <div style={{
+          <div data-shape="shield" style={{
             width:100, height:110,
             background: `linear-gradient(135deg,${couleur1},${couleur2})`,
             clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)",
@@ -6448,8 +6448,53 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
     if (!logoRef.current) { toast?.("⚠️ Aperçu non disponible", "err"); return; }
     try {
       toast?.("⏳ Préparation du logo...");
-      const canvas = await html2canvas(logoRef.current, { scale: 3, backgroundColor: null, useCORS: true });
-      const dataUrl = canvas.toDataURL("image/png");
+      const container = logoRef.current;
+      const canvas = await html2canvas(container, { scale: 3, backgroundColor: null, useCORS: true });
+
+      // html2canvas ne sait pas reproduire le CSS clip-path — le style
+      // "Bouclier" (hexagone) ressortait donc en simple rectangle au
+      // téléchargement, une forme différente de celle affichée dans
+      // l'aperçu. On réapplique manuellement le découpage sur le canvas
+      // capturé, à partir de la position réelle du bouclier mesurée dans
+      // le DOM (pas de coordonnées codées en dur).
+      let finalCanvas = canvas;
+      const shieldEl = container.querySelector('[data-shape="shield"]');
+      if (shieldEl) {
+        const scale = canvas.width / container.offsetWidth;
+        const contRect = container.getBoundingClientRect();
+        const shieldRect = shieldEl.getBoundingClientRect();
+        const x = (shieldRect.left - contRect.left) * scale;
+        const y = (shieldRect.top - contRect.top) * scale;
+        const w = shieldRect.width * scale;
+        const h = shieldRect.height * scale;
+
+        const clipped = document.createElement("canvas");
+        clipped.width = canvas.width; clipped.height = canvas.height;
+        const ctx = clipped.getContext("2d");
+        // Zone du bouclier : découpée en hexagone (même polygone que le CSS).
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(x + w*0.5, y);
+        ctx.lineTo(x + w, y + h*0.25);
+        ctx.lineTo(x + w, y + h*0.75);
+        ctx.lineTo(x + w*0.5, y + h);
+        ctx.lineTo(x, y + h*0.75);
+        ctx.lineTo(x, y + h*0.25);
+        ctx.closePath();
+        ctx.clip();
+        ctx.drawImage(canvas, 0, 0);
+        ctx.restore();
+        // Reste de l'image (ex: le nom sous le bouclier) : copié tel quel, sans découpage.
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, y + h, canvas.width, canvas.height - (y + h));
+        ctx.clip();
+        ctx.drawImage(canvas, 0, 0);
+        ctx.restore();
+        finalCanvas = clipped;
+      }
+
+      const dataUrl = finalCanvas.toDataURL("image/png");
       const link = document.createElement("a");
       link.download = `logo-${(nom||"business").toLowerCase().replace(/\s+/g,"-")}.png`;
       link.href = dataUrl;
