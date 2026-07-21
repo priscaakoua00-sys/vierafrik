@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-// Hook générique matchMedia — ex: useMediaQuery("(min-width: 1280px)")
+// Hook générique matchMedia, ex: useMediaQuery("(min-width: 1280px)")
 export function useMediaQuery(query) {
   const [matches, setMatches] = useState(
     () => typeof window !== "undefined" && window.matchMedia ? window.matchMedia(query).matches : false

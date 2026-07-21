@@ -10,14 +10,16 @@ import { downloadPdfFromHtml } from "./utils/pdfExport.js";
 import html2canvas from "html2canvas";
 import CameraCapture from "./components/network/CameraCapture.jsx";
 import { uploadNetworkMedia, videoExtFromBlob } from "./utils/networkMedia.js";
+import LandingPage from "./components/marketing/LandingPage.jsx";
+import PriceComparator from "./components/prices/PriceComparator.jsx";
 
 // ══════════════════════════════════════════════════════
-// App v34 — Freemium découverte (base v31 intacte) :
+// App v34, Freemium découverte (base v31 intacte) :
 //   Ajout UNIQUEMENT : usageCount, trackUsage, canAdd refondu,
 //   PREMIUM_PAGES vidé, UpgradeWall modal.
-//   Zéro suppression — zéro régression UI.
+//   Zéro suppression, zéro régression UI.
 // ══════════════════════════════════════════════════════
-//  LANGUE — 100% FRANÇAIS (fixe, pas de switch)
+//  LANGUE, 100% FRANÇAIS (fixe, pas de switch)
 // ══════════════════════════════════════════════════════
 
 const I18N = {
@@ -39,12 +41,12 @@ const I18N = {
     empDeleted:"🗑 Employé supprimé",
     payEmp:"💸 Payer",
     payConfirmTitle:"Confirmer le paiement",
-    payConfirmMsg:(name,amt,cur)=>`Payer ${name} — ${amt} ${cur} ?`,
+    payConfirmMsg:(name,amt,cur)=>`Payer ${name}, ${amt} ${cur} ?`,
     payDone:"✅ Paiement enregistré !",
     payHistory:"📋 Historique des paiements",
     noEmployees:"Aucun employé. Ajoutez votre première personne.",
     noPayments:"Aucun paiement enregistré.",
-    empFreePlan:"🔒 Plan Free — 1 employé max. Passez à Pro !",
+    empFreePlan:"🔒 Plan Free, 1 employé max. Passez à Pro !",
     // Nav bottom
     navbAction:"Action", navbDash:"Accueil", navbInv:"Factures",
     navbReseau:"Réseau", navbCli:"Clients", navbCompte:"Compte",
@@ -158,16 +160,16 @@ const I18N = {
   },
 };
 
-// Langue 100% française — pas de switch, pas de localStorage
+// Langue 100% française, pas de switch, pas de localStorage
 const _globalLang = "fr";
 const t = (key, ...args) => {
   const val = I18N["fr"]?.[key] ?? key;
   return typeof val === "function" ? val(...args) : val;
 };
-// useLang gardé pour compatibilité — retourne toujours "fr"
+// useLang gardé pour compatibilité, retourne toujours "fr"
 const useLang = () => "fr";
 
-// FedaPay — Clé publique
+// FedaPay, Clé publique
 // Vite injecte les variables dans globalThis.__VITE_ENV__ via vite.config → define
 // Fallback window.__ENV__ pour compatibilité Vercel runtime injection
 const FEDAPAY_PK = (typeof globalThis !== "undefined" && globalThis.__VITE_ENV__?.VITE_FEDAPAY_PK)
@@ -183,18 +185,18 @@ const T = {
   text:"#dff0ff",sub:"#4a7090",sub2:"#80a8c8",ink:"#000",
 };
 
-// PLANS / INF / TEST_MODE / TRIAL_* — voir src/data/pricing.js
+// PLANS / INF / TEST_MODE / TRIAL_*, voir src/data/pricing.js
 
 // ══════════════════════════════════════════════════════
-//  CONVERSION FCFA — affichage international
-//  Taux fixes (pas d'API externe) — mis à jour manuellement
+//  CONVERSION FCFA, affichage international
+//  Taux fixes (pas d'API externe), mis à jour manuellement
 //  1 EUR = 655,957 FCFA (taux fixe CFA officiel)
 //  1 USD ≈ 600 FCFA (approximatif)
 // ══════════════════════════════════════════════════════
 const FCFA_TO_EUR = 1 / 655.957;  // taux officiel et fixe
 const FCFA_TO_USD = 1 / 600;      // approximation stable
 
-// Pays africains (codes ISO) — affichage FCFA uniquement
+// Pays africains (codes ISO), affichage FCFA uniquement
 const AFRICAN_TIMEZONES = [
   "Africa/Abidjan","Africa/Accra","Africa/Addis_Ababa","Africa/Algiers",
   "Africa/Asmara","Africa/Bamako","Africa/Bangui","Africa/Banjul",
@@ -234,13 +236,13 @@ const detectCurrency = () => {
   } catch(e) { return "USD"; }
 };
 
-// Constantes calculées une seule fois au démarrage (perf — évite appels répétés à chaque render)
+// Constantes calculées une seule fois au démarrage (perf, évite appels répétés à chaque render)
 const IS_AFRICA = detectIsAfrica();
 const DETECTED_CURRENCY = detectCurrency();
 // Devise par défaut de l'utilisateur (XOF pour Afrique, EUR/USD sinon)
 const DEFAULT_CURRENCY = IS_AFRICA ? "XOF" : DETECTED_CURRENCY;
 
-// fmtPrice — formateur universel avec devise dynamique
+// fmtPrice, formateur universel avec devise dynamique
 // Usage : fmtPrice(amount, "EUR") ou fmtPrice(amount) → utilise DEFAULT_CURRENCY
 const fmtPrice = (amount, currency) => {
   const cur = currency || DEFAULT_CURRENCY;
@@ -262,18 +264,37 @@ const fmtPrice = (amount, currency) => {
 // fmtPriceShort = alias pour compatibilité (plans, boutons)
 const fmtPriceShort = (amount, currency) => fmtPrice(amount, currency);
 
-// fmtf — formateur court FCFA/devise locale (transactions, toasts, KPIs)
-// Utilise DEFAULT_CURRENCY — pas de devise par facture ici (données globales dashboard)
+// fmtf, formateur court FCFA/devise locale (transactions, toasts, KPIs)
+// Utilise DEFAULT_CURRENCY, pas de devise par facture ici (données globales dashboard)
 const fmtf=n=>fmtPrice(n, DEFAULT_CURRENCY);
 
+// Initialise un paiement Mobile Money via l'API FedaPay. Utilisé à la fois
+// par le paiement in-app (Dashboard) et par la page de paiement publique
+// (PublicPayPage) : c'était dupliqué avant, chaque appelant garde ensuite
+// son propre traitement du résultat (mise à jour d'état, fermeture modal...).
+async function initFedaPayment({ amount, email, description, invoiceId, phone, uid }) {
+  const res = await fetch("/api/fedapay", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "initialize", amount, email, description,
+      invoice_id: invoiceId, phone, ...(uid ? { uid } : {}),
+    }),
+  });
+  const data = await res.json();
+  const url = data?.payment_url || data?.url || data?.transaction?.payment_url;
+  const txId = data?.transaction_id || data?.transaction?.id;
+  return { url, txId, data };
+}
+
 // Numéro WhatsApp du support VierAfrik (format international sans "+", ex: "22507000000").
-// Laisser vide tant qu'il n'est pas configuré — le bloc "Support prioritaire"
+// Laisser vide tant qu'il n'est pas configuré, le bloc "Support prioritaire"
 // reste alors masqué plutôt que de pointer vers un lien wa.me factice.
 const VIERAFRIK_SUPPORT_WHATSAPP="";
 
 const CATS_S=["Commerce","Services","Alimentation","Agriculture","Transport","BTP","Santé","Éducation","Divers"];
 const CATS_E=["Salaires","Loyer","Transport","Marketing","Matières premières","Équipement","Communication","Divers"];
-// PAYS / villes — voir src/data/locations.js (COUNTRIES) — source unique pays/villes de toute l'app
+// PAYS / villes, voir src/data/locations.js (COUNTRIES), source unique pays/villes de toute l'app
 // ── Source unique des opérateurs Mobile Money ──
 // Utilisé par : dashboard (modal pay + modal mm) + PublicPayPage
 const MM=[
@@ -287,7 +308,7 @@ const MM=[
 
 // ── Supabase Client ──
 const SUPA_URL = "https://oexzpfygeunehkcpoukv.supabase.co";
-// ✅ Lecture de la clé Supabase — compatible Vite build + Vercel + browser
+// ✅ Lecture de la clé Supabase, compatible Vite build + Vercel + browser
 // Vite injecte les variables dans globalThis.__VITE_ENV__ via vite.config → define
 // Fallback window.__ENV__ pour injection Vercel runtime
 // Fallback localStorage pour override via panel diagnostic
@@ -308,7 +329,7 @@ const getSupa = async () => {
   // Recrée le client si la clé a changé (après test panel diagnostic)
   const currentKey = getSupaKey();
   if(_supa && _supa._supaKey === currentKey) return _supa;
-  // FIX — avant : chargement en direct depuis https://esm.sh/@supabase/supabase-js@2
+  // FIX, avant : chargement en direct depuis https://esm.sh/@supabase/supabase-js@2
   // à chaque visite (version non verrouillée, point de panne unique externe).
   // Maintenant : dépendance npm normale, figée dans le build, aucun appel réseau externe.
   const client = createClient(SUPA_URL, currentKey, {auth:{persistSession:true,storageKey:"vierafrik_auth"}});
@@ -319,9 +340,9 @@ const getSupa = async () => {
 // Détecte si la clé est valide (anon key = commence par eyJ)
 const isKeyValid = () => getSupaKey().startsWith("eyJ");
 
-// localStorage supprimé — 100% Supabase
+// localStorage supprimé, 100% Supabase
 
-// hashPwd supprimé — Supabase Auth gère le hachage des mots de passe
+// hashPwd supprimé, Supabase Auth gère le hachage des mots de passe
 
 // ── Supabase helpers ──
 const supaInsert = async (table, data) => {
@@ -342,7 +363,7 @@ const supaInsert = async (table, data) => {
         console.error('🔒 [RLS] Politique RLS bloque l\'insertion. Vérifiez dans Supabase Dashboard → Authentication → Policies → table "'+table+'" → INSERT policy avec: auth.uid() = user_id');
       }
       if(error.code === '23505'){
-        console.error('⚠️ [DUPLICATE] ID en double — l\'enregistrement existe déjà.');
+        console.error('⚠️ [DUPLICATE] ID en double, l\'enregistrement existe déjà.');
       }
       return false;
     }
@@ -386,7 +407,7 @@ const supaDelete = async (table, id) => {
 const markUserActive = async (userId) => {
   try {
     const s = await getSupa();
-    // maybeSingle() — retourne null si absent, jamais de crash
+    // maybeSingle(), retourne null si absent, jamais de crash
     const {data} = await s
       .from("user_activity")
       .select("action_count, user_active")
@@ -400,7 +421,7 @@ const markUserActive = async (userId) => {
         last_action_at: new Date().toISOString(),
       }).eq("user_id", userId);
     } else {
-      // Première action — créer la ligne
+      // Première action, créer la ligne
       await s.from("user_activity").insert({
         user_id: userId,
         user_active: true,
@@ -422,7 +443,7 @@ const supaSelect = async (table, userId) => {
   } catch(e) { console.error('Supabase error:', e); return []; }
 };
 // ── Générateur d'UUID compatible Supabase ──
-// crypto.randomUUID() — standard W3C, disponible dans tous browsers modernes + Node 14.17+
+// crypto.randomUUID(), standard W3C, disponible dans tous browsers modernes + Node 14.17+
 // Fallback manuel si l'environnement ne le supporte pas (très rare)
 const xid = () => {
   try {
@@ -442,7 +463,7 @@ const fmt=n=>new Intl.NumberFormat("fr-FR").format(Math.round(n||0));
 const fmtk=n=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1e3?(n/1e3).toFixed(0)+"k":String(Math.round(n||0));
 const cleanP=p=>(p||"").replace(/\D/g,"");
 
-// LangBtn supprimé — app 100% français
+// LangBtn supprimé, app 100% français
 
 function ConfirmModal({open,onClose,onConfirm,title,msg,confirmLabel="Confirmer",danger=false}){
   if(!open)return null;
@@ -465,17 +486,17 @@ async function seed(uid){
   try {
     const s0 = await getSupa();
     const { data: { user } } = await s0.auth.getUser();
-    if (user?.user_metadata?.seeded) return; // déjà seedé — on arrête
+    if (user?.user_metadata?.seeded) return; // déjà seedé, on arrête
     // Marquer comme seedé AVANT l'insertion (évite double-seed en cas d'erreur partielle)
     await s0.auth.updateUser({ data: { seeded: true } });
   } catch(_e) { /* continuer même si la vérification échoue */ }
-  // Dates dynamiques — toujours dans le mois en cours pour que les KPIs soient visibles
+  // Dates dynamiques, toujours dans le mois en cours pour que les KPIs soient visibles
   const now=new Date();
   const y=now.getFullYear();
   const m=String(now.getMonth()+1).padStart(2,"0");
-  // daysInMonth — nombre de jours réels du mois en cours (gère février + années bissextiles)
+  // daysInMonth, nombre de jours réels du mois en cours (gère février + années bissextiles)
   const daysInMonth = new Date(y, now.getMonth()+1, 0).getDate();
-  // safe(n) — retourne n si valide, sinon le dernier jour du mois
+  // safe(n), retourne n si valide, sinon le dernier jour du mois
   const safe=(n)=>Math.min(n, daysInMonth);
   const d=(n)=>`${y}-${m}-${String(safe(n)).padStart(2,"0")}`;
   const lastM=()=>{const dt=new Date(now);dt.setMonth(dt.getMonth()-1);return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;};
@@ -555,7 +576,7 @@ function Btn({ch,onClick,v="p",sm,full,dis,sx={}}){
   );
 }
 function Modal({open,onClose,title,ch,wide,children}){
-  // ch (prop legacy) a priorité sur children — ne pas passer les deux simultanément
+  // ch (prop legacy) a priorité sur children, ne pas passer les deux simultanément
   if(!open)return null;
   return(
     <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",zIndex:900,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(16px)",padding:"12px"}}>
@@ -598,7 +619,7 @@ function Toast({t}){
           </div>
         </div>
       </div>
-      {/* Barre de progression bas — se vide en 3.2s */}
+      {/* Barre de progression bas, se vide en 3.2s */}
       <div style={{height:2,background:T.c3,margin:"0 14px 10px"}}>
         <div style={{height:"100%",background:`linear-gradient(90deg,${col},${col}66)`,borderRadius:2,
           animation:"toastProgress 3.2s linear forwards"}}/>
@@ -644,7 +665,7 @@ function Particles(){
   return <canvas ref={r} style={{position:"absolute",inset:0,width:"100%",height:"100%",pointerEvents:"none"}}/>;
 }
 function Confetti({on}){
-  // useMemo — calcule les positions aléatoires une seule fois à l'activation
+  // useMemo, calcule les positions aléatoires une seule fois à l'activation
   // sans ça, chaque re-render du parent repositionne les 80 divs
   const pieces = useMemo(()=>
     Array.from({length:80},(_,i)=>({
@@ -675,9 +696,9 @@ function Confetti({on}){
 // ════════════════════════════════
 
 // ════════════════════════════════
-//  AUTH PAGE — Connexion / Inscription
+//  AUTH PAGE, Connexion / Inscription
 // ════════════════════════════════
-// ── AuthPage helpers — définis HORS du composant pour éviter la perte de focus ──
+// ── AuthPage helpers, définis HORS du composant pour éviter la perte de focus ──
 const AUTH_IS = {
   width:"100%", padding:"12px 14px",
   background:T.c2, border:`1px solid ${T.border}`,
@@ -696,8 +717,8 @@ function AuthField({ l, ch, err, hint }) {
   );
 }
 
-function AuthPage({onLogin}){
-  const [tab,setTab]=useState("login"); // "login" | "signup" | "reset"
+function AuthPage({onLogin,initialTab="login",onBack}){
+  const [tab,setTab]=useState(initialTab); // "login" | "signup" | "reset"
   const [f,setF]=useState({});
   const [e,setE]=useState({});
   const [load,setL]=useState(false);
@@ -758,7 +779,7 @@ function AuthPage({onLogin}){
         });
         if(error){
           if(error.message.includes("already registered")||error.message.includes("already exists")){
-            setE({email:"Cet email est déjà utilisé — connectez-vous."});
+            setE({email:"Cet email est déjà utilisé. Connectez-vous."});
           } else {
             setE({email:"Erreur : "+error.message});
           }
@@ -792,7 +813,7 @@ function AuthPage({onLogin}){
           refBy:user.user_metadata?.ref_by||refBy,
         };
         await seed(u.id);
-        // ── Essai gratuit Pro (TRIAL_DAYS jours) — reste "free" si l'insertion échoue, non bloquant ──
+        // ── Essai gratuit Pro (TRIAL_DAYS jours), reste "free" si l'insertion échoue, non bloquant ──
         try{
           const s3=await getSupa();
           const trialEnd=new Date(Date.now()+TRIAL_DAYS*24*60*60*1000).toISOString();
@@ -853,6 +874,12 @@ function AuthPage({onLogin}){
       <div style={{position:"absolute",top:"20%",left:"50%",transform:"translateX(-50%)",width:600,height:280,background:`radial-gradient(ellipse,${T.gr}0b 0%,transparent 70%)`,pointerEvents:"none"}}/>
       <div style={{position:"relative",zIndex:1,width:"95%",maxWidth:430}}>
 
+        {onBack&&(
+          <button onClick={onBack} style={{background:"none",border:"none",color:T.sub2,fontFamily:"inherit",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6,marginBottom:16,padding:0}}>
+            ← Retour
+          </button>
+        )}
+
         {/* Logo */}
         <div style={{textAlign:"center",marginBottom:28}}>
           <div style={{width:72,height:72,borderRadius:20,background:`linear-gradient(135deg,${T.gr},${T.teal})`,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:34,marginBottom:12,boxShadow:`0 0 50px ${T.gr}44`}}>🌍</div>
@@ -901,7 +928,7 @@ function AuthPage({onLogin}){
                     ch={<input style={AUTH_IS} placeholder="Prénom Nom" value={f.name||""} onChange={s("name")}/>}/>
                   <AuthField l={t("businessName")}
                     ch={<input style={AUTH_IS} placeholder="Nom de mon entreprise" value={f.business||""} onChange={s("business")}/>}/>
-                  <AuthField l="Localisation" hint="Optionnel — utilisé pour le Réseau et tes clients"
+                  <AuthField l="Localisation" hint="Optionnel, utilisé pour le Réseau et tes clients"
                     ch={<LocationPicker
                       theme={T}
                       countryCode={f.country||""}
@@ -962,37 +989,6 @@ function AuthPage({onLogin}){
           ))}
         </div>
         <div style={{textAlign:"center",marginTop:12,fontSize:11,color:T.sub}}>🔒 Sécurisé · Supabase RLS · SSL · Mondial</div>
-
-        {/* Social proof */}
-        <div style={{marginTop:18,textAlign:"center"}}>
-          <div style={{display:"inline-flex",alignItems:"center",gap:8,background:`${T.gr}12`,border:`1px solid ${T.gr}33`,borderRadius:30,padding:"8px 18px"}}>
-            <span style={{fontSize:16}}>🌍</span>
-            <span style={{fontSize:12,fontWeight:800,color:T.gr}}>1,000+</span>
-            <span style={{fontSize:12,color:T.sub2}}>{t("entrepreneurs")}</span>
-          </div>
-        </div>
-        <div style={{marginTop:16,display:"flex",flexDirection:"column",gap:10}}>
-          {[
-            {txt:"Grâce à VierAfrik, je sais enfin combien je gagne vraiment chaque jour.",nom:"Mariam",ville:"Abidjan",emoji:"👩🏾"},
-            {txt:"Simple et puissant. Je suis mon business et trouve des clients facilement.",nom:"Koffi",ville:"Bouaké",emoji:"👨🏿"},
-            {txt:"Avant je vendais sans connaître mon bénéfice. Maintenant je contrôle tout.",nom:"Awa",ville:"Yamoussoukro",emoji:"👩🏿"},
-          ].map((item,i)=>(
-            <div key={i} style={{background:T.c1,border:`1px solid ${T.border}`,borderRadius:14,padding:"12px 14px",position:"relative",overflow:"hidden"}}>
-              <div style={{position:"absolute",top:10,right:14,fontSize:22,opacity:.15}}>"</div>
-              <div style={{fontSize:12,color:T.text,lineHeight:1.6,marginBottom:8,fontStyle:"italic"}}>"{item.txt}"</div>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <div style={{width:28,height:28,borderRadius:"50%",background:`linear-gradient(135deg,${T.gr},${T.teal})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>{item.emoji}</div>
-                <div>
-                  <span style={{fontSize:11,fontWeight:700,color:T.gr}}>— {item.nom}</span>
-                  <span style={{fontSize:11,color:T.sub2}}>, {item.ville}</span>
-                </div>
-                <div style={{marginLeft:"auto",display:"flex",gap:1}}>
-                  {[1,2,3,4,5].map(n=><span key={n} style={{fontSize:10,color:T.gold}}>★</span>)}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
         <div style={{marginTop:14,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
           {[
             {ic:"🔒",label:"Paiements sécurisés"},
@@ -1011,12 +1007,12 @@ function AuthPage({onLogin}){
 }
 
 // ════════════════════════════════════════════════════════
-//  PAGE PUBLIQUE PAIEMENT — accessible SANS login
+//  PAGE PUBLIQUE PAIEMENT, accessible SANS login
 //  URL : https://vierafrik.com/?pay=INVOICE_ID
 // ════════════════════════════════════════════════════════
 
 // Client Supabase dédié pour la page publique
-// Utilise la clé anon hardcodée comme fallback — nécessaire car VITE_SUPABASE_ANON_KEY
+// Utilise la clé anon hardcodée comme fallback, nécessaire car VITE_SUPABASE_ANON_KEY
 // peut ne pas être disponible dans le contexte public (pas de build Vite côté client)
 const _PUBLIC_SUPA_URL = "https://oexzpfygeunehkcpoukv.supabase.co";
 const _getPublicSupaKey = () => {
@@ -1028,7 +1024,7 @@ const _getPublicSupaKey = () => {
     const fromStorage = localStorage.getItem("vierafrik_supa_key");
     if (fromStorage && fromStorage.startsWith("eyJ")) return fromStorage;
   } catch(_) {}
-  // Fallback hardcodé — clé anon publique (sans danger, c'est la clé publique)
+  // Fallback hardcodé, clé anon publique (sans danger, c'est la clé publique)
   return getSupaKey();
 };
 
@@ -1038,7 +1034,7 @@ const getPublicSupa = async () => {
   const key = _getPublicSupaKey();
   // Recrée le client si la clé a changé (cohérent avec getSupa)
   if (_publicSupa && _publicSupaKey === key) return _publicSupa;
-  // FIX — même correctif que getSupa() : plus de chargement CDN externe non verrouillé.
+  // FIX, même correctif que getSupa() : plus de chargement CDN externe non verrouillé.
   _publicSupa = createClient(_PUBLIC_SUPA_URL, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { apikey: key, Authorization: `Bearer ${key}` } },
@@ -1068,7 +1064,7 @@ function PublicPayPage({ invoiceId }) {
   useEffect(() => {
     (async () => {
       if (!invoiceId) {
-        setError("Lien invalide — aucun identifiant de facture fourni.");
+        setError("Lien invalide, aucun identifiant de facture fourni.");
         setLoading(false);
         return;
       }
@@ -1108,7 +1104,7 @@ function PublicPayPage({ invoiceId }) {
 
         // ── TENTATIVE 3 : RPC publique get_public_invoice (si policy RLS manquante) ──
         if (!data && rlsBlocked) {
-          console.warn("⚠️ [PublicPayPage] RLS bloque — tentative via RPC get_public_invoice");
+          console.warn("⚠️ [PublicPayPage] RLS bloque, tentative via RPC get_public_invoice");
           try {
             const r3 = await s.rpc("get_public_invoice", { invoice_id: invoiceId });
             if (!r3.error && r3.data) {
@@ -1131,7 +1127,7 @@ function PublicPayPage({ invoiceId }) {
               if (json4?.id) {
                 data = json4;
               } else {
-                console.warn("⚠️ [PublicPayPage] /api/invoice — aucune facture:", json4);
+                console.warn("⚠️ [PublicPayPage] /api/invoice, aucune facture:", json4);
               }
             } else {
               console.warn("⚠️ [PublicPayPage] /api/invoice HTTP", r4.status);
@@ -1207,7 +1203,7 @@ function PublicPayPage({ invoiceId }) {
     return () => clearInterval(timer);
   }, [confirming, invoiceId]);
 
-  // Formateur dynamique — utilise la devise de la facture (fallback XOF)
+  // Formateur dynamique, utilise la devise de la facture (fallback XOF)
   const fmtf = (n) => {
     const cur = inv?.currency || "XOF";
     const noDecimal = ["XOF","XAF","JPY","KRW"].includes(cur);
@@ -1228,21 +1224,13 @@ function PublicPayPage({ invoiceId }) {
     setPaying(true);
     showToast("⏳ Création du paiement…");
     try {
-      const res = await fetch("/api/fedapay", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "initialize",
-          amount: inv.total - inv.amtPaid,
-          email: "client@vierafrik.com",
-          description: "Paiement facture " + inv.num,
-          invoice_id: inv.id,
-          phone: phone,
-        }),
+      const { url, txId, data } = await initFedaPayment({
+        amount: inv.total - inv.amtPaid,
+        email: "client@vierafrik.com",
+        description: "Paiement facture " + inv.num,
+        invoiceId: inv.id,
+        phone,
       });
-      const data = await res.json();
-      const url = data?.payment_url || data?.url || data?.transaction?.payment_url;
-      const txId = data?.transaction_id || data?.transaction?.id;
       if (url) {
         // Stocker txId dans Supabase pour vérification webhook
         if (txId) {
@@ -1260,7 +1248,7 @@ function PublicPayPage({ invoiceId }) {
       }
     } catch (e) {
       console.error("❌ [FedaPay] Exception réseau:", e);
-      showToast("❌ Erreur réseau — vérifiez votre connexion", "err");
+      showToast("❌ Erreur réseau, vérifiez votre connexion", "err");
       setPaying(false);
     }
   };
@@ -1291,7 +1279,7 @@ function PublicPayPage({ invoiceId }) {
             <div style={{ fontSize:10, color:"#4a7090" }}>Paiement sécurisé · Mobile Money</div>
           </div>
         </div>
-        {/* Échappatoire — un utilisateur déjà connecté qui atterrit ici via
+        {/* Échappatoire, un utilisateur déjà connecté qui atterrit ici via
             son propre lien de paiement (test, partage, onglet réutilisé) ne
             doit jamais rester bloqué sans moyen de revenir à son espace. */}
         <a href={window.location.origin} style={{ fontSize:11, color:"#4a7090", textDecoration:"none", fontWeight:600, whiteSpace:"nowrap" }}>
@@ -1468,7 +1456,7 @@ function PublicPayPage({ invoiceId }) {
 
             {/* Footer */}
             <div style={{ textAlign:"center", marginTop:24, fontSize:11, color:"#4a7090" }}>
-              <div style={{ marginBottom:4 }}>🌍 VierAfrik — Gagne de l'argent en Afrique</div>
+              <div style={{ marginBottom:4 }}>🌍 VierAfrik, Gagne de l'argent en Afrique</div>
               <a href="https://vierafrik.com" style={{ color:"#00d478", textDecoration:"none" }}>vierafrik.com</a>
             </div>
           </>
@@ -1489,10 +1477,10 @@ function SmartQRCanvas({ value, color="#00d478", bg="#010306", size=220 }) {
 
   useEffect(() => {
     if (window.QRious) { setLoaded(true); return; }
-    // FIX v31 #2 — vérifier si le script est déjà dans le DOM (montage/démontage rapide)
+    // FIX v31 #2, vérifier si le script est déjà dans le DOM (montage/démontage rapide)
     const existing = document.querySelector('script[src*="qrious"]');
     if (existing) {
-      // Script déjà injecté — attendre son chargement ou utiliser QRious si dispo
+      // Script déjà injecté, attendre son chargement ou utiliser QRious si dispo
       const check = setInterval(() => { if (window.QRious) { setLoaded(true); clearInterval(check); } }, 50);
       setTimeout(() => clearInterval(check), 5000);
       return;
@@ -1643,7 +1631,7 @@ function SmartQRPage({ user, isAdmin=false }) {
   const handleSave = async () => {
     if (!qrValue) { showToast("⚠️ Générez d'abord un QR", "err"); return; }
     if (!plan.custom && saved.length >= PLAN_LIMITS.free.maxQR) {
-      showToast("🔒 Limite Free (2 QR) — passez à Pro !", "warn"); return;
+      showToast("🔒 Limite Free (2 QR), passez à Pro !", "warn"); return;
     }
     const entry = {
       id: xid(),
@@ -1652,7 +1640,7 @@ function SmartQRPage({ user, isAdmin=false }) {
       value: qrValue,
       label: mode==="payment" ? `Paiement ${payForm.amount ? fmt(parseFloat(payForm.amount))+" FCFA" : (payForm.invoiceNum || payForm.invoiceId)}`
            : mode==="contact" ? `Contact ${contactForm.type}`
-           : `Business Page — ${bizForm.name}`,
+           : `Business Page, ${bizForm.name}`,
       color: qrColor,
       bg: qrBg,
       scans: 0,
@@ -1664,7 +1652,7 @@ function SmartQRPage({ user, isAdmin=false }) {
       setSaved(p => [entry, ...p]);
       showToast("✅ QR sauvegardé !");
     } catch(e) {
-      showToast("❌ Erreur sauvegarde — réessayez", "err");
+      showToast("❌ Erreur sauvegarde, réessayez", "err");
     }
   };
 
@@ -1727,7 +1715,7 @@ function SmartQRPage({ user, isAdmin=false }) {
           <div key={m.id}
             onClick={() => {
               if (!m.free && !plan.bizPage) {
-                showToast("🔒 Business Page — Plan Pro requis", "warn"); return;
+                showToast("🔒 Business Page, Plan Pro requis", "warn"); return;
               }
               setMode(m.id);
             }}
@@ -1987,7 +1975,7 @@ function SmartQRPage({ user, isAdmin=false }) {
                 zIndex:10, display:"flex", flexDirection:"column", alignItems:"center",
                 justifyContent:"center", gap:6, borderRadius:16 }}>
                 <span style={{ fontSize:24 }}>🔒</span>
-                <span style={{ fontSize:11, fontWeight:700, color:"#f0b020" }}>Personnalisation — Plan Pro</span>
+                <span style={{ fontSize:11, fontWeight:700, color:"#f0b020" }}>Personnalisation, Plan Pro</span>
                 <span style={{ fontSize:10, color:"#4a7090" }}>Couleurs · Logo · QR illimités</span>
               </div>
             )}
@@ -2086,7 +2074,7 @@ function SmartQRPage({ user, isAdmin=false }) {
                   const txt = `🌍 *${user?.business||"VierAfrik"}*\n\nScannez ce QR pour ${
                     mode==="payment" ? "payer directement" :
                     mode==="contact" ? "me contacter" : "voir ma page"
-                  }.\n\n${qrValue}\n\n— VierAfrik 🌍`;
+                  }.\n\n${qrValue}\n\nVierAfrik 🌍`;
                   window.open("https://wa.me/?text="+encodeURIComponent(txt), "_blank");
                 }}
                   style={{ width:"100%", padding:"9px", borderRadius:11, border:"none",
@@ -2107,7 +2095,7 @@ function SmartQRPage({ user, isAdmin=false }) {
   );
 }
 
-//  ROOT — Gestion session unique
+//  ROOT, Gestion session unique
 // ════════════════════════════════
 // ════════════════════════════════════════════════════════
 //  PAGE RESET MOT DE PASSE
@@ -2122,7 +2110,7 @@ function ResetPasswordPage(){
   const [error,setError]=useState("");
   const [ready,setReady]=useState(false); // session recovery établie
 
-  // Supabase injecte le token dans le hash — onAuthStateChange l'intercepte
+  // Supabase injecte le token dans le hash, onAuthStateChange l'intercepte
   useEffect(()=>{
     let sub;
     (async()=>{
@@ -2158,14 +2146,14 @@ function ResetPasswordPage(){
         setError(err.message||"Erreur lors de la mise à jour du mot de passe.");
       } else {
         setDone(true);
-        // Déconnexion propre après reset — l'utilisateur devra se reconnecter
+        // Déconnexion propre après reset, l'utilisateur devra se reconnecter
         setTimeout(async()=>{
           await supa.auth.signOut();
           window.location.href="/";
         },3000);
       }
     }catch(e){
-      setError("Erreur réseau — vérifiez votre connexion.");
+      setError("Erreur réseau, vérifiez votre connexion.");
     }
     setLoading(false);
   };
@@ -2348,10 +2336,11 @@ function ResetPasswordPage(){
 }
 
 // ════════════════════════════════
-//  ROOT — Gestion session unique
+//  ROOT, Gestion session unique
 // ════════════════════════════════
 export default function App(){
   const [ses,setSes]=useState(undefined);
+  const [showAuth,setShowAuth]=useState(false);
 
   const buildUser=(user)=>({
     id:user.id,
@@ -2428,7 +2417,7 @@ export default function App(){
     });
   };
 
-  // ── ROUTE /reset-password — PRIORITÉ ABSOLUE ──
+  // ── ROUTE /reset-password, PRIORITÉ ABSOLUE ──
   // Supabase redirige : https://vierafrik.com/reset-password#access_token=...&type=recovery
   const _pathname=window.location.pathname;
   const _hashParams=new URLSearchParams(window.location.hash.replace("#",""));
@@ -2440,7 +2429,7 @@ export default function App(){
     return <ResetPasswordPage/>;
   }
 
-  // ── PAGE PUBLIQUE PAIEMENT — PRIORITÉ ABSOLUE, avant tout chargement de session ──
+  // ── PAGE PUBLIQUE PAIEMENT, PRIORITÉ ABSOLUE, avant tout chargement de session ──
   // Un client externe qui reçoit un lien ?pay= n'a pas de compte VierAfrik.
   // Ce check doit être AVANT le spinner de session pour éviter le flash de login.
   const payInvId = new URLSearchParams(window.location.search).get("pay");
@@ -2461,9 +2450,15 @@ export default function App(){
     );
   }
 
-  // Non connecté → page de connexion
+  // Non connecté → page publique (vitrine), sauf lien de parrainage ou retour explicite vers la connexion
   if(!ses){
-    return <AuthPage onLogin={u=>setSes(u)}/>;
+    const params=new URLSearchParams(window.location.search);
+    const hasRef=!!params.get("ref");
+    const wantsLogin=showAuth||hasRef||params.get("login")==="1";
+    if(wantsLogin){
+      return <AuthPage onLogin={u=>setSes(u)} initialTab={hasRef?"signup":"login"} onBack={hasRef?undefined:()=>setShowAuth(false)}/>;
+    }
+    return <LandingPage onGetStarted={()=>setShowAuth(true)} onLogin={()=>setShowAuth(true)}/>;
   }
 
   // Connecté → Dashboard
@@ -2471,7 +2466,7 @@ export default function App(){
 }
 
 // ══════════════════════════════════════════════════════
-//  WIDGET NOTIFICATION ACTIVITÉ — composant ISOLÉ
+//  WIDGET NOTIFICATION ACTIVITÉ, composant ISOLÉ
 //  Son propre state → jamais de re-render sur Dashboard
 // ══════════════════════════════════════════════════════
 const ACTIVITY_NOTIFS=[
@@ -2523,17 +2518,17 @@ function ActivityNotifWidget(){
 
 // ════════════════════════════════════════════════════════════
 //  🔧 SUPABASE DIAGNOSTIC PANEL
-//  Accessible dans Compte (⚙️) — teste chaque table en live
-//  N'affecte AUCUNE donnée existante — tests en lecture seule
+//  Accessible dans Compte (⚙️), teste chaque table en live
+//  N'affecte AUCUNE donnée existante, tests en lecture seule
 //  + test d'insertion sur une table de test dédiée
 // ════════════════════════════════════════════════════════════
-// Source unique des emails admin — réutilisée telle quelle comme
+// Source unique des emails admin, réutilisée telle quelle comme
 // ADMIN_EMAILS dans Dashboard, pour qu'un accès admin (mode gratuit total,
 // panneau de diagnostic technique) ne puisse jamais diverger entre les deux.
 const DIAG_ADMIN_EMAILS = ["priscaakoua00@gmail.com", "contactvierafrik@gmail.com"];
 
 function SupaDiagPanel({ uid, userEmail }) {
-  // ⚠️ VISIBLE UNIQUEMENT POUR L'ADMIN — tous les hooks doivent être
+  // ⚠️ VISIBLE UNIQUEMENT POUR L'ADMIN, tous les hooks doivent être
   // déclarés avant tout retour conditionnel (règle des Hooks React).
   const [open,    setOpen]    = useState(false);
   const [running, setRunning] = useState(false);
@@ -2574,7 +2569,7 @@ function SupaDiagPanel({ uid, userEmail }) {
           uidMatch ? `auth.uid() = ${authUid.slice(0,12)}… ✓` : `Mismatch: auth=${authUid.slice(0,8)} vs ses=${uid?.slice(0,8)}`
         );
       } else {
-        addResult("❌", "Session Auth", "err", "Pas de session active — utilisateur non connecté côté Supabase");
+        addResult("❌", "Session Auth", "err", "Pas de session active, utilisateur non connecté côté Supabase");
       }
 
       // ── 3. Test SELECT par table ──
@@ -2584,9 +2579,9 @@ function SupaDiagPanel({ uid, userEmail }) {
           if (error) {
             const isRLS = error.code === "42501" || error.message?.includes("row-level security");
             addResult("❌", `SELECT ${table}`, "err",
-              isRLS ? `🔒 RLS bloque la lecture — policy manquante` : `${error.code}: ${error.message}`);
+              isRLS ? `🔒 RLS bloque la lecture, policy manquante` : `${error.code}: ${error.message}`);
           } else {
-            addResult("✅", `SELECT ${table}`, "ok", `OK — ${data.length} ligne(s) trouvée(s)`);
+            addResult("✅", `SELECT ${table}`, "ok", `OK, ${data.length} ligne(s) trouvée(s)`);
           }
         } catch(e) {
           addResult("❌", `SELECT ${table}`, "err", e.message);
@@ -2613,11 +2608,11 @@ function SupaDiagPanel({ uid, userEmail }) {
             isRLS
               ? `🔒 RLS BLOQUE l'insertion ! → Dashboard Supabase → Auth → Policies → transactions → ajouter policy INSERT: auth.uid() = user_id`
               : isDup
-              ? `⚠️ Doublon (id déjà existant) — INSERT fonctionne mais l'ID était dupliqué`
+              ? `⚠️ Doublon (id déjà existant), INSERT fonctionne mais l'ID était dupliqué`
               : `${insErr.code}: ${insErr.message}` + (insErr.hint ? ` | Hint: ${insErr.hint}` : "")
           );
         } else {
-          addResult("✅", "INSERT transactions", "ok", "Insertion réussie ✓ — suppression de la ligne test…");
+          addResult("✅", "INSERT transactions", "ok", "Insertion réussie ✓, suppression de la ligne test…");
           // Nettoyer la ligne de test
           await s.from("transactions").delete().eq("id", testId);
           addResult("🧹", "Nettoyage test", "ok", "Ligne de diagnostic supprimée ✓");
@@ -2668,7 +2663,7 @@ function SupaDiagPanel({ uid, userEmail }) {
       return;
     }
     setSaving(true);
-    // FIX v31 #4 — utiliser la même clé que getSupaKey() lit : "vierafrik_supa_key"
+    // FIX v31 #4, utiliser la même clé que getSupaKey() lit : "vierafrik_supa_key"
     localStorage.setItem("vierafrik_supa_key", newKey.trim());
     await new Promise(r => setTimeout(r, 400));
     setSaving(false);
@@ -2712,7 +2707,7 @@ function SupaDiagPanel({ uid, userEmail }) {
             borderRadius:10,padding:"10px 12px",marginBottom:12,fontSize:11,
           }}>
             <div style={{fontWeight:700,color:keyOk?T.gr:"#f0b020",marginBottom:4}}>
-              {keyOk ? "✅ Clé anon key détectée" : "⚠️ Clé publishable détectée — probablement la cause des bugs INSERT"}
+              {keyOk ? "✅ Clé anon key détectée" : "⚠️ Clé publishable détectée, probablement la cause des bugs INSERT"}
             </div>
             <div style={{color:T.sub2,fontFamily:"monospace",fontSize:10,wordBreak:"break-all"}}>
               {currentKey.slice(0,32)}…
@@ -2783,8 +2778,8 @@ function SupaDiagPanel({ uid, userEmail }) {
                   color: results.some(r=>r.status==="err") ? "#ff2255" : "#00d478",
                 }}>
                   {results.some(r=>r.status==="err")
-                    ? "❌ Des erreurs ont été détectées — suivez les instructions dans les lignes rouges"
-                    : "✅ Tous les tests réussis — Supabase fonctionne correctement"}
+                    ? "❌ Des erreurs ont été détectées, suivez les instructions dans les lignes rouges"
+                    : "✅ Tous les tests réussis, Supabase fonctionne correctement"}
                 </div>
               )}
             </div>
@@ -2799,7 +2794,7 @@ function SupaDiagPanel({ uid, userEmail }) {
               Si un lien de paiement affiche "Facture introuvable", ce n'est plus un problème de policy RLS à ouvrir manuellement :
               <code style={{background:"#010c18",padding:"2px 6px",borderRadius:4,margin:"0 2px"}}>/api/invoice.js</code>
               lit déjà la facture côté serveur avec la clé service_role, sans exposer la table <code style={{background:"#010c18",padding:"2px 6px",borderRadius:4}}>invoices</code> publiquement.
-              Une policy <code style={{background:"#010c18",padding:"2px 6px",borderRadius:4}}>USING (true)</code> ne doit jamais être ajoutée — elle rendrait les factures de tous les comptes lisibles par n'importe qui, sans authentification.
+              Une policy <code style={{background:"#010c18",padding:"2px 6px",borderRadius:4}}>USING (true)</code> ne doit jamais être ajoutée, elle rendrait les factures de tous les comptes lisibles par n'importe qui, sans authentification.
             </div>
           </div>
 
@@ -2839,23 +2834,23 @@ function SupaDiagPanel({ uid, userEmail }) {
 // ════════════════════════════════
 //  DASHBOARD PRINCIPAL
 // ════════════════════════════════
-// ── Modules intégrés — CoachIA vit désormais dans src/components/coach/ ──
+// ── Modules intégrés, CoachIA vit désormais dans src/components/coach/ ──
 
 
 function Dashboard({ses,logout,updSes}){
   const uid=ses.id;
 
   // ══════════════════════════════════════════════════════
-  //  MODE ADMIN — accès total sans payer
-  //  Ajouter d'autres emails ici si nécessaire (source unique —
+  //  MODE ADMIN, accès total sans payer
+  //  Ajouter d'autres emails ici si nécessaire (source unique)
   //  voir DIAG_ADMIN_EMAILS, qui doit rester identique)
   // ══════════════════════════════════════════════════════
   const ADMIN_EMAILS=DIAG_ADMIN_EMAILS;
   const isAdmin=ADMIN_EMAILS.includes((ses.email||"").toLowerCase().trim());
-  // isFr — toujours true (app 100% française) — utilisé dans CoachIA et insights
+  // isFr, toujours true (app 100% française), utilisé dans CoachIA et insights
   const isFr = true;
   // plan est recalculé via activePlan (basé sur abonnement Supabase)
-  // useLang gardé pour compat — retourne toujours "fr"
+  // useLang gardé pour compat, retourne toujours "fr"
   useLang(); // ← force re-render sur changement de langue
 
   const [page,setPage]=useState("dash");
@@ -2872,30 +2867,30 @@ function Dashboard({ses,logout,updSes}){
   const [notOpen,setNot]=useState(false);
   const [confirmState,setConfirm]=useState(null);
   const [flashId,setFlashId]=useState(null);
-  // FIX v31 #1 — toastRef permet d'appeler toast() depuis loadAll (useEffect)
+  // FIX v31 #1, toastRef permet d'appeler toast() depuis loadAll (useEffect)
   const toastRef=useRef(null);
 
-  // ── Compteur d'activité (analytics uniquement — le blocage se fait
+  // ── Compteur d'activité (analytics uniquement, le blocage se fait
   //  par ressource dans canAdd(), pas par ce compteur global) ──
   const [usageCount, setUsageCount] = useState(0);
   const [showUpgradeWall, setShowUpgradeWall] = useState(false);
   const [showAvisPopup,setShowAvisPopup]=useState(false);
   const [showWelcomeVideo,setShowWelcomeVideo]=useState(false);
 
-  // ── PDF téléchargeable en place — remplace l'ancien window.open("","_blank")
+  // ── PDF téléchargeable en place, remplace l'ancien window.open("","_blank")
   //  puis le window.print()/CSS @media print qui donnait une page blanche ou
   //  ouvrait un onglet séparé sur mobile (comportement navigateur instable).
   //  downloadPdfFromHtml() rend le fragment hors-écran et télécharge un vrai
   //  fichier .pdf, sans dépendre du dialogue d'impression du navigateur. ──
   const doPrint=(html,filename)=>{
     downloadPdfFromHtml(html, filename||"document.pdf").catch(()=>{
-      toast("❌ Erreur génération PDF — réessayez.","err");
+      toast("❌ Erreur génération PDF, réessayez.","err");
     });
   };
 
 
   // ══════════════════════════════════════════════════════
-  //  ABONNEMENT — state, helpers, vérification
+  //  ABONNEMENT, state, helpers, vérification
   // ══════════════════════════════════════════════════════
   const [subscription,setSubscription]=useState(null); // { plan, paid_at, expires_at, status, days_left }
   const [subLoading,setSubLoading]=useState(true);
@@ -2959,12 +2954,12 @@ function Dashboard({ses,logout,updSes}){
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[isSubActive,subscription?.plan]);
 
-  // plan object — toujours basé sur activePlan
+  // plan object, toujours basé sur activePlan
   const plan=PLANS[activePlan]||PLANS.free;
   const accent=ses.accent||T.gr;
 
   // ══════════════════════════════════════════════════════
-  //  DEVISE UTILISATEUR — préférence persistée dans Supabase
+  //  DEVISE UTILISATEUR, préférence persistée dans Supabase
   //  Valeur : "XOF" | "EUR" | "USD"
   //  Fallback : DEFAULT_CURRENCY (détecté par timezone)
   // ══════════════════════════════════════════════════════
@@ -2974,14 +2969,14 @@ function Dashboard({ses,logout,updSes}){
   // EUR = taux officiel fixe CFA · USD = approximation stable
   const HINT_RATES = { EUR: FCFA_TO_EUR, USD: FCFA_TO_USD };
 
-  // fmtWithHint — affiche le montant principal + conversion indicative en gris
+  // fmtWithHint, affiche le montant principal + conversion indicative en gris
   // Ex : "1 850 000 FCFA  (~2 822 €)"  ou  "1 850 € " (pas de hint si même devise)
   // Règles :
   //   - Si userCurrency = XOF/XAF → montant en FCFA + hint EUR en gris
   //   - Si userCurrency = EUR/USD  → montant en EUR/USD (converti) + hint FCFA en gris
   //   - v = nombre brut stocké en FCFA dans la BDD
   //   - skipHint = true pour les cas où le hint serait confus (toasts, etc.)
-  // FIX v28 : fmtWithHint retourne TOUJOURS { main, hint } — plus jamais de string ambiguë
+  // FIX v28 : fmtWithHint retourne TOUJOURS { main, hint }, plus jamais de string ambiguë
   // hint = "" si skipHint ou n===0 → FmtHint n'affiche rien, jamais de "[object Object]"
   const fmtWithHint = (v, skipHint = false) => {
     const n = Math.round(v || 0);
@@ -3003,7 +2998,7 @@ function Dashboard({ses,logout,updSes}){
 
   // Composant inline pour afficher montant + hint
   // Usage : <FmtHint v={sales} size={22} />
-  // FIX v28 : FmtHint simplifié — fmtWithHint retourne toujours { main, hint }
+  // FIX v28 : FmtHint simplifié, fmtWithHint retourne toujours { main, hint }
   const FmtHint = ({ v, size = 22, color, noHint = false }) => {
     const { main, hint } = fmtWithHint(v, noHint);
     return (
@@ -3014,7 +3009,7 @@ function Dashboard({ses,logout,updSes}){
     );
   };
 
-  // v34 — Plus aucune page bloquée à l'entrée (mode découverte)
+  // v34, Plus aucune page bloquée à l'entrée (mode découverte)
   // Le blocage arrive UNIQUEMENT lors d'une action (canAdd)
   const PREMIUM_PAGES=[];
   const isPremiumPage=()=>false;
@@ -3097,7 +3092,7 @@ function Dashboard({ses,logout,updSes}){
     setProfile({name:ses.name||"",biz:ses.business||"",phone:ses.phone||"",goal:ses.goal||2500000,currency:ses.currency||DEFAULT_CURRENCY});
   },[ses.name,ses.business,ses.phone,ses.goal,ses.currency]);
 
-  // save() supprimé — 100% Supabase
+  // save() supprimé, 100% Supabase
 
   // ── Chargement données depuis Supabase ──
   useEffect(()=>{
@@ -3131,7 +3126,7 @@ function Dashboard({ses,logout,updSes}){
           notes:r.notes||"",payStatus:r.status==="paid"?"paid":"unpaid",payRef:"",payProv:"",
           amtPaid:parseFloat(r.amt_paid)||0,
         })));
-        // v34 — Charger usage_count (non bloquant)
+        // v34, Charger usage_count (non bloquant)
         try{const s2=await getSupa();const{data:ua}=await s2.from("user_activity").select("usage_count").eq("user_id",uid).maybeSingle();if(ua?.usage_count)setUsageCount(ua.usage_count);}catch(_){}
 
         // ── Seed démo si compte vide ──
@@ -3150,8 +3145,8 @@ function Dashboard({ses,logout,updSes}){
         }
       } catch(e) {
         console.error("Erreur chargement données:",e);
-        // FIX v31 #1 — utiliser toastRef (toast n'est pas encore défini ici via useCallback)
-        toastRef.current?.("⚠️ Erreur de chargement — vérifiez votre connexion","err");
+        // FIX v31 #1, utiliser toastRef (toast n'est pas encore défini ici via useCallback)
+        toastRef.current?.("⚠️ Erreur de chargement, vérifiez votre connexion","err");
       } finally {
         setLoading(false);
       }
@@ -3159,7 +3154,7 @@ function Dashboard({ses,logout,updSes}){
     loadAll();
   },[uid]);
 
-  // Handler retour paiement FedaPay — SEULEMENT après confirmation réelle
+  // Handler retour paiement FedaPay, SEULEMENT après confirmation réelle
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
     const paySuccess=params.get("pay_success");
@@ -3184,15 +3179,15 @@ function Dashboard({ses,logout,updSes}){
               const status=verifData?.transaction?.status||verifData?.status;
               confirmed=(status==="approved"||status==="complete"||status==="success"||status==="paid");
             }catch(ve){
-              // Vérification échouée (réseau) — on NE confirme PAS automatiquement
+              // Vérification échouée (réseau), on NE confirme PAS automatiquement
               // Le webhook FedaPay côté serveur prendra le relais
-              console.warn("[FedaPay] Vérification échouée — en attente du webhook:", ve);
+              console.warn("[FedaPay] Vérification échouée, en attente du webhook:", ve);
               confirmed=false;
             }
           } else {
-            // FIX v31 #3 — Sans trxRef, NE PAS confirmer automatiquement
+            // FIX v31 #3, Sans trxRef, NE PAS confirmer automatiquement
             // Le webhook FedaPay côté serveur est la source de vérité
-            console.warn("[FedaPay] Retour sans trxRef — attente webhook serveur");
+            console.warn("[FedaPay] Retour sans trxRef, attente webhook serveur");
             confirmed = false;
           }
           if(confirmed){            // ── Enregistrer l'abonnement dans la table subscriptions ──
@@ -3221,7 +3216,7 @@ function Dashboard({ses,logout,updSes}){
             // Activer plan dans les métadonnées Supabase Auth
             await s.rpc("update_user_plan",{user_id:uid,new_plan:plan}).then(()=>{}).catch(()=>{});
             updSes({plan});
-            // Mettre à jour commission ambassadeur — UNIQUEMENT si utilisateur actif (anti-fraude)
+            // Mettre à jour commission ambassadeur, UNIQUEMENT si utilisateur actif (anti-fraude)
             if(ses.refBy&&plan!=="free"){
               const comm=plan==="pro"?980:1980;
               // Vérifier que l'utilisateur est vraiment actif avant de payer la commission
@@ -3252,13 +3247,13 @@ function Dashboard({ses,logout,updSes}){
               if(isRealUser && isOldEnough){
                 await s.from("referrals").update({plan, commission:comm, verified:true}).eq("referred_user_id",uid);
               } else {
-                // Commission en attente — compte trop récent ou pas assez d'actions
+                // Commission en attente, compte trop récent ou pas assez d'actions
                 await s.from("referrals").update({plan, commission:0, verified:false}).eq("referred_user_id",uid);
               }
             }
             toast("🎉 Plan "+plan.charAt(0).toUpperCase()+plan.slice(1)+" activé ! Bienvenue !","ok",plan==="business"?"#f0b020":"#00d478");
           } else {
-            toast("⏳ Paiement en cours de vérification — votre plan sera activé automatiquement sous peu.","warn");
+            toast("⏳ Paiement en cours de vérification, votre plan sera activé automatiquement sous peu.","warn");
           }
           window.history.replaceState({},"",window.location.pathname);
           setPage("dash");
@@ -3299,7 +3294,7 @@ function Dashboard({ses,logout,updSes}){
     }
   },[txs.length]);
 
-  // Welcome video — première visite seulement
+  // Welcome video, première visite seulement
   useEffect(()=>{
     if(!loading){
       const key=`welcome_video_${ses.id}`;
@@ -3310,14 +3305,14 @@ function Dashboard({ses,logout,updSes}){
     }
   },[loading]);
 
-  // Notifications d'activité — gérées dans ActivityNotifWidget isolé (pas de re-render Dashboard)
+  // Notifications d'activité, gérées dans ActivityNotifWidget isolé (pas de re-render Dashboard)
 
   const toast=useCallback((msg,k="ok",col)=>{
     const id=xid();
     setTsts(p=>[...p,{id,msg,k,col:col||(k==="ok"?accent:undefined)}]);
     setTimeout(()=>setTsts(p=>p.filter(x=>x.id!==id)),3500);
   },[accent]);
-  // FIX v31 #1 — sync le ref après chaque render (accent peut changer)
+  // FIX v31 #1, sync le ref après chaque render (accent peut changer)
   useEffect(()=>{ toastRef.current=toast; },[toast]);
 
   // KPIs
@@ -3330,7 +3325,7 @@ function Dashboard({ses,logout,updSes}){
   const allExps=txs.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
   const gPct=goal>0?Math.max(0,Math.min(100,Math.round(profit/goal*100))):0;
 
-  // Insights automatiques — multilingue
+  // Insights automatiques, multilingue
   const insights=useMemo(()=>{
     const tips=[];
     const isFr=_globalLang==="fr";
@@ -3349,13 +3344,13 @@ function Dashboard({ses,logout,updSes}){
   },[txs,invs,gPct,allSales]);
 
   const notifs=[
-    ...invs.filter(i=>i.status==="overdue").map(i=>({id:i.id,k:"warn",msg:`${t("statusOverdue").replace("🔴 ","")}: ${i.num} — ${i.clientName}`})),
-    ...invs.filter(i=>i.status==="partial").map(i=>({id:"pt"+i.id,k:"info",msg:`${t("alreadyPaid").replace("Déjà p","Part. p")}: ${i.num} — ${t("remaining")} ${fmtPrice(Math.max(0,i.total-(i.amtPaid||0)), i.currency||DEFAULT_CURRENCY)}`})),
+    ...invs.filter(i=>i.status==="overdue").map(i=>({id:i.id,k:"warn",msg:`${t("statusOverdue").replace("🔴 ","")}: ${i.num}, ${i.clientName}`})),
+    ...invs.filter(i=>i.status==="partial").map(i=>({id:"pt"+i.id,k:"info",msg:`${t("alreadyPaid").replace("Déjà p","Part. p")}: ${i.num}, ${t("remaining")} ${fmtPrice(Math.max(0,i.total-(i.amtPaid||0)), i.currency||DEFAULT_CURRENCY)}`})),
     ...(gPct>=100?[{id:"goal",k:"win",msg:t("goalExceeded")}]:[]),
     ...invs.filter(i=>i.payStatus==="paid"&&i.payRef).slice(0,1).map(i=>({id:"p"+i.id,k:"ok",msg:`${t("statusPaid").replace("✅ ","")}: ${i.num}`})),
   ];
 
-  // canAdd — bloque à la limite RÉELLE et annoncée de chaque ressource
+  // canAdd, bloque à la limite RÉELLE et annoncée de chaque ressource
   // (10 transactions / 3 clients / 2 factures en Free), pas un compteur
   // global arbitraire qui contredisait la page tarifs.
   const canAdd=type=>{
@@ -3367,7 +3362,7 @@ function Dashboard({ses,logout,updSes}){
     return true;
   };
 
-  // trackUsage — analytics uniquement (n'affecte plus le blocage)
+  // trackUsage, analytics uniquement (n'affecte plus le blocage)
   const trackUsage=async()=>{
     if(isAdmin||isSubActive) return;
     const next=usageCount+1;
@@ -3379,7 +3374,7 @@ function Dashboard({ses,logout,updSes}){
       else{await s.from("user_activity").insert({user_id:uid,usage_count:next,action_count:next,user_active:true,last_action_at:new Date().toISOString(),created_at:new Date().toISOString()});}
     }catch(e){console.warn("[trackUsage]",e);}
   };
-  // Verrou pour nextNum — évite les doublons de séquence en cas de double-clic rapide
+  // Verrou pour nextNum, évite les doublons de séquence en cas de double-clic rapide
   // Le ref persiste entre les renders sans provoquer de re-render
   const _lastInvSeq = useRef(0);
 
@@ -3397,12 +3392,12 @@ function Dashboard({ses,logout,updSes}){
     // Prend le max entre l'état React (peut être stale) et le dernier numéro émis dans cette session
     const seq = Math.max(maxFromState, _lastInvSeq.current) + 1;
     _lastInvSeq.current = seq; // mémorise pour le prochain appel immédiat
-    // FIX v28 : suffix aléatoire supprimé — numéro déterministe et lisible (VAF-2026-0001)
+    // FIX v28 : suffix aléatoire supprimé, numéro déterministe et lisible (VAF-2026-0001)
     return `${prefix}${String(seq).padStart(4,"0")}`;
   };
 
   // ══════════════════════════════════════════════
-  //  CRUD Transactions — VERSION CORRIGÉE
+  //  CRUD Transactions, VERSION CORRIGÉE
   //  - Jamais de bouton bloqué (try/catch global)
   //  - State local mis à jour immédiatement
   //  - Supabase en arrière-plan
@@ -3414,21 +3409,21 @@ function Dashboard({ses,logout,updSes}){
     try {
       const amt = parseFloat(fmSnap.amount);
       if (!amt || amt <= 0) {
-        toast("⚠️ Montant invalide — saisissez un montant supérieur à 0", "err");
+        toast("⚠️ Montant invalide, saisissez un montant supérieur à 0", "err");
         return;
       }
       const isEdit = !!fmSnap._edit;
       // "tx" renommé "txObj" pour ne pas écraser la fonction t() de traduction
-      // FIX v28 : _cat normalisé — cat (local) + category (Supabase) toujours identiques
+      // FIX v28 : _cat normalisé, cat (local) + category (Supabase) toujours identiques
       const _cat = fmSnap.cat || fmSnap.category || "Commerce";
       const txObj = {
         id: isEdit ? fmSnap.id : xid(),
         uid,       // clé locale (rétrocompat affichage)
-        user_id: uid, // clé Supabase — cohérence avec le schéma DB
+        user_id: uid, // clé Supabase, cohérence avec le schéma DB
         type: fmSnap.type || "sale",
         amount: amt,
-        cat: _cat,      // clé locale — utilisée par insights/filtres
-        category: _cat, // clé Supabase — normalisée simultanément pour éviter divergence
+        cat: _cat,      // clé locale, utilisée par insights/filtres
+        category: _cat, // clé Supabase, normalisée simultanément pour éviter divergence
         who: fmSnap.who || "",
         date: fmSnap.date || today(),
         note: fmSnap.note || "",
@@ -3450,7 +3445,7 @@ function Dashboard({ses,logout,updSes}){
 
       // ── CAS NOUVEAU ──
       if (!canAdd("tx")) {
-        toast(`🔒 Plan Free — max ${plan.maxTx} transactions. Passez à Pro ! 🚀`, "warn");
+        toast(`🔒 Plan Free, max ${plan.maxTx} transactions. Passez à Pro ! 🚀`, "warn");
         return;
       }
 
@@ -3459,7 +3454,7 @@ function Dashboard({ses,logout,updSes}){
       setTxs(nextTxs);
       flashNew(txObj.id);
 
-      // 2. Fermeture modal immédiate — UX fluide, bouton jamais bloqué
+      // 2. Fermeture modal immédiate, UX fluide, bouton jamais bloqué
       setMdl(null); setFm({});
 
       // 3. Toast selon type
@@ -3497,7 +3492,7 @@ function Dashboard({ses,logout,updSes}){
           if (canAdd("cli")) {
             const newCli = {
               id: xid(), uid,
-              user_id: uid, // clé Supabase — cohérence avec .filter(c => c.user_id === uid)
+              user_id: uid, // clé Supabase, cohérence avec .filter(c => c.user_id === uid)
               name: txObj.who,
               phone: fmSnap.clientPhone || "",
               email: "", pays: normalizeLegacyCountry(ses.country) || "CI",
@@ -3517,7 +3512,7 @@ function Dashboard({ses,logout,updSes}){
             if (cliOk) toast("👤 Client créé : " + txObj.who, "ok", T.teal);
           }
         } else {
-          // Client existant — mettre à jour son CA
+          // Client existant, mettre à jour son CA
           clientId = existing.id;
           const newCa = (existing.ca || 0) + amt;
           setClis(prev => prev.map(c => c.id === existing.id ? {...c, ca: newCa} : c));
@@ -3562,9 +3557,9 @@ function Dashboard({ses,logout,updSes}){
         }
       }
     } catch (err) {
-      // Catch global — le modal est déjà fermé, pas de blocage possible
+      // Catch global, le modal est déjà fermé, pas de blocage possible
       console.error("❌ saveTx ERREUR:", err);
-      toast("❌ Erreur inattendue — réessayez", "err");
+      toast("❌ Erreur inattendue, réessayez", "err");
       // Si modal encore ouvert (cas exceptionnel), le fermer
       setMdl(prev => prev === "tx" ? null : prev);
     }
@@ -3585,21 +3580,21 @@ function Dashboard({ses,logout,updSes}){
       ca:parseFloat(snap.ca)||0,
     };
     if(snap._edit){
-      // MODIFICATION — snapshot pour rollback si l'écriture Supabase échoue
+      // MODIFICATION, snapshot pour rollback si l'écriture Supabase échoue
       const prevCli=clis.find(x=>x.id===c.id);
       setClis(prev=>prev.map(x=>x.id===c.id?c:x));
       setMdl(null);setFm({});
       const ok=await supaUpdate("clients",{name:c.name,phone:c.phone,email:c.email,country:c.pays,city:c.ville,category:c.cat,status:c.status,revenue:c.ca,user_id:uid},c.id);
       if(!ok){
         if(prevCli)setClis(prev=>prev.map(x=>x.id===c.id?prevCli:x));
-        toast("❌ Modification non sauvegardée — vérifiez votre connexion et réessayez.","err");
+        toast("❌ Modification non sauvegardée, vérifiez votre connexion et réessayez.","err");
         return;
       }
       toast("✅ Client modifié !");
     } else {
       // NOUVEAU CLIENT
-      if(!canAdd("cli")){toast(`🔒 Plan Free — max ${plan.maxCli} clients. Passez à Pro ! 🚀`,"warn");return;}
-      // 1. State local immédiat via updater — jamais stale
+      if(!canAdd("cli")){toast(`🔒 Plan Free, max ${plan.maxCli} clients. Passez à Pro ! 🚀`,"warn");return;}
+      // 1. State local immédiat via updater, jamais stale
       setClis(prev=>[c,...prev]);
       flashNew(c.id);
       toast(`👤 Client créé : ${c.name} !`);
@@ -3609,10 +3604,10 @@ function Dashboard({ses,logout,updSes}){
       if(!ok){
         // Rollback si INSERT échoué
         setClis(prev=>prev.filter(x=>x.id!==c.id));
-        toast("❌ Erreur sauvegarde client — réessayez.","err");
+        toast("❌ Erreur sauvegarde client, réessayez.","err");
         return;
       }
-      // INSERT réussi — state local déjà à jour, pas besoin de re-fetch
+      // INSERT réussi, state local déjà à jour, pas besoin de re-fetch
       markUserActive(uid);
       trackUsage(); // v34
     }
@@ -3642,31 +3637,31 @@ function Dashboard({ses,logout,updSes}){
       amtPaid:snap._edit?(snap.amtPaid||0):0,
     };
     if(snap._edit){
-      // MODIFICATION — snapshot pour rollback si l'écriture Supabase échoue
+      // MODIFICATION, snapshot pour rollback si l'écriture Supabase échoue
       const prevInv=invs.find(x=>x.id===inv.id);
       setInvs(prev=>prev.map(x=>x.id===inv.id?inv:x));
       setMdl(null);setFm({});
       const ok=await supaUpdate("invoices",{client_name:inv.clientName,phone:inv.phone,total:inv.total,subtotal:inv.sub,tax:inv.tax,currency:inv.currency,status:inv.status,issued:inv.issued,due:inv.due||null,items:JSON.stringify(inv.items),notes:inv.notes,user_id:uid},inv.id);
       if(!ok){
         if(prevInv)setInvs(prev=>prev.map(x=>x.id===inv.id?prevInv:x));
-        toast("❌ Modification non sauvegardée — vérifiez votre connexion et réessayez.","err");
+        toast("❌ Modification non sauvegardée, vérifiez votre connexion et réessayez.","err");
         return;
       }
       toast("✅ Facture modifiée !");
       return;
     }
     // NOUVELLE FACTURE
-    if(!canAdd("inv")){toast(`🔒 Plan Free — max ${plan.maxInv} factures. Passez à Pro ! 🚀`,"warn");return;}
-    // 1. State local immédiat — visible avant l'INSERT
+    if(!canAdd("inv")){toast(`🔒 Plan Free, max ${plan.maxInv} factures. Passez à Pro ! 🚀`,"warn");return;}
+    // 1. State local immédiat, visible avant l'INSERT
     setInvs(prev=>[inv,...prev]);
     flashNew(inv.id);
     setMdl(null);setFm({});
-    // 2. INSERT Supabase — l'ID UUID doit correspondre exactement à celui du QR code
+    // 2. INSERT Supabase, l'ID UUID doit correspondre exactement à celui du QR code
     const ok=await supaInsert("invoices",{id:inv.id,user_id:uid,number:inv.num,client_name:inv.clientName,phone:inv.phone,total:inv.total,subtotal:inv.sub,tax:inv.tax,currency:inv.currency,status:inv.status,issued:inv.issued,due:inv.due||null,items:JSON.stringify(inv.items),notes:inv.notes,amt_paid:0});
     if(!ok){
       // Rollback si INSERT échoué
       setInvs(prev=>prev.filter(x=>x.id!==inv.id));
-      toast("❌ Erreur sauvegarde facture — réessayez.","err");
+      toast("❌ Erreur sauvegarde facture, réessayez.","err");
       return;
     }
     // 3. Re-fetch pour synchroniser avec la base
@@ -3691,7 +3686,7 @@ function Dashboard({ses,logout,updSes}){
     // ⚠️ Avertissement si l'ID n'est pas un UUID valide (QR code ne fonctionnera pas)
     const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(inv.id||"");
     if(!isValidUUID){
-      console.warn("⚠️ [genPDF] ID non-UUID détecté:", inv.id, "— Le QR code risque de ne pas fonctionner.");
+      console.warn("⚠️ [genPDF] ID non-UUID détecté:", inv.id, "Le QR code risque de ne pas fonctionner.");
     }
     const sC2={paid:"#d4fde8",partial:"#d0f0ff",pending:"#fff8cc",overdue:"#ffe0e6"};
     const sT2={paid:"#0a6e3d",partial:"#006677",pending:"#7a5c00",overdue:"#8b0020"};
@@ -3700,7 +3695,7 @@ function Dashboard({ses,logout,updSes}){
     const stKey=inv.status||"pending";
     const cur=inv.currency||DEFAULT_CURRENCY;
     const fp=n=>fmtPrice(n,cur);
-    // Téléchargé en vrai PDF (voir doPrint) — plus de dialogue d'impression instable.
+    // Téléchargé en vrai PDF (voir doPrint), plus de dialogue d'impression instable.
     doPrint(`
 <style>#print-area *{box-sizing:border-box}#print-area{font-family:sans-serif;padding:40px;max-width:740px;margin:0 auto;font-size:13px;color:#111;background:#fff}
 #print-area .hdr{display:flex;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #00d478}
@@ -3716,7 +3711,7 @@ function Dashboard({ses,logout,updSes}){
 <div class="hdr"><div><div class="brand">🌍 Vier<b>Afrik</b></div><div style="color:#555;margin-top:4px">${ses.business||"Mon Entreprise"}</div><div style="color:#999;font-size:11px">${ses.email}</div></div>
 <div style="text-align:right"><div style="font-size:18px;font-weight:900">${inv.num}</div><br><span class="badge">${stKey==="paid"?"✅ Payée":stKey==="partial"?"🔵 Part. payée":stKey==="pending"?"⏳ En attente":"🔴 En retard"}</span>${inv.payRef?`<div style="font-size:10px;color:#888;margin-top:4px">Réf: ${inv.payRef}</div>`:""}</div></div>
 <div class="grid"><div><div class="lbl">Facturé à</div><div class="val">${inv.clientName}</div><div style="color:#555;margin-top:3px;font-size:12px">${inv.phone||""}</div></div>
-<div style="text-align:right"><div class="lbl">Date émission</div><div class="val">${inv.issued}</div><div style="margin-top:8px"><div class="lbl">Échéance</div><div class="val">${inv.due||"—"}</div></div></div></div>
+<div style="text-align:right"><div class="lbl">Date émission</div><div class="val">${inv.issued}</div><div style="margin-top:8px"><div class="lbl">Échéance</div><div class="val">${inv.due||"-"}</div></div></div></div>
 <table><thead><tr><th>Description</th><th>Qté</th><th>Prix unitaire</th><th>Total</th></tr></thead><tbody>
 ${(inv.items||[]).map(it=>`<tr><td>${it.name}</td><td>${it.qty||1}</td><td>${fp(it.price)}</td><td><strong>${fp(it.line||(it.qty||1)*it.price)}</strong></td></tr>`).join("")}
 </tbody></table>
@@ -3743,9 +3738,9 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
       ?inv.items.map(it=>it.name).filter(Boolean).join(", ")
       :"Prestation de service";
     const payLink=(window.location.origin||"https://vierafrik.com")+"/?pay="+inv.id;
-    const msg="Bonjour,\nVoici votre facture.\n\nMontant : "+fmtPrice(inv.total, inv.currency||DEFAULT_CURRENCY)+"\nService : "+desc+"\nDate : "+inv.issued+"\n\n💳 Payez en ligne :\n"+payLink+"\n\nMerci pour votre confiance.\n— "+(ses.business||"VierAfrik");
+    const msg="Bonjour,\nVoici votre facture.\n\nMontant : "+fmtPrice(inv.total, inv.currency||DEFAULT_CURRENCY)+"\nService : "+desc+"\nDate : "+inv.issued+"\n\n💳 Payez en ligne :\n"+payLink+"\n\nMerci pour votre confiance.\n"+(ses.business||"VierAfrik");
     window.open("https://wa.me/"+ph+"?text="+encodeURIComponent(msg),"_blank");
-    toast("📱 WhatsApp ouvert — la facture est prête à envoyer !");
+    toast("📱 WhatsApp ouvert, la facture est prête à envoyer !");
   };
   // Mobile Money
   const doPay=async()=>{
@@ -3755,22 +3750,14 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     if(!inv?.total||inv.total<=0){toast("⚠️ Montant facture invalide","err");return;}
     toast(`⏳ Création paiement ${prov.toUpperCase()}…`);
     try{
-      const res=await fetch("/api/fedapay",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          action:"initialize",
-          amount:inv.total-(inv.amtPaid||0),
-          email:ses.email,
-          description:"Paiement facture "+inv.num,
-          invoice_id:inv.id,
-          uid:ses.id,
-          phone:phone,
-        })
+      const {url,txId,data}=await initFedaPayment({
+        amount:inv.total-(inv.amtPaid||0),
+        email:ses.email,
+        description:"Paiement facture "+inv.num,
+        invoiceId:inv.id,
+        uid:ses.id,
+        phone,
       });
-      const data=await res.json();
-      const url=data?.payment_url||data?.url||data?.transaction?.payment_url;
-      const txId=data?.transaction_id||data?.transaction?.id;
       if(url){
         // Marquer facture en attente + stocker txId pour vérification webhook
         const next=invs.map(x=>x.id===inv.id?{...x,payStatus:"pending",payProv:prov,payRef:txId||""}:x);
@@ -3781,11 +3768,11 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         setTimeout(()=>window.location.href=url,800);
       } else {
         console.error("❌ [FedaPay] Réponse inattendue:", data);
-        toast("❌ "+(data?.message||data?.error||"Erreur paiement — réessayez"),"err");
+        toast("❌ "+(data?.message||data?.error||"Erreur paiement, réessayez"),"err");
       }
     }catch(e){
       console.error("❌ [FedaPay] Exception réseau:", e);
-      toast("❌ Erreur réseau — vérifiez votre connexion","err");
+      toast("❌ Erreur réseau, vérifiez votre connexion","err");
     }
   };
 
@@ -3803,16 +3790,16 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     setMdl(null);setFm({});
     const ok=await supaUpdate("invoices",{amt_paid:newPaid,status:newStatus},inv.id);
     if(!ok){
-      // Rollback — l'encaissement affiché ne doit jamais mentir sur ce qui est réellement enregistré
+      // Rollback, l'encaissement affiché ne doit jamais mentir sur ce qui est réellement enregistré
       setInvs(prev=>prev.map(x=>x.id===inv.id?inv:x));
-      toast("❌ Paiement non enregistré en base — vérifiez votre connexion et réessayez.","err");
+      toast("❌ Paiement non enregistré en base, vérifiez votre connexion et réessayez.","err");
       return;
     }
-    if(reste<=0)toast(`✅ ${inv.num} — entièrement payée !`,"ok",T.gr);
-    else toast(`💰 Encaissé ${fmtPrice(amt, inv.currency||DEFAULT_CURRENCY)} — Reste : ${fmtPrice(reste, inv.currency||DEFAULT_CURRENCY)}`,"ok",T.teal);
+    if(reste<=0)toast(`✅ ${inv.num}, entièrement payée !`,"ok",T.gr);
+    else toast(`💰 Encaissé ${fmtPrice(amt, inv.currency||DEFAULT_CURRENCY)}, Reste : ${fmtPrice(reste, inv.currency||DEFAULT_CURRENCY)}`,"ok",T.teal);
   };
 
-  // Coach IA — moteur local multilingue FR/EN
+  // Coach IA, moteur local multilingue FR/EN
   // CSV Export
   const csvExport=(data,name)=>{
     if(!data.length){toast("⚠️ Aucune donnée à exporter","warn");return;}
@@ -3824,7 +3811,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     toast(`⬇ ${name}.csv exporté !`);
   };
 
-  // Charts — données réelles des 6 derniers mois
+  // Charts, données réelles des 6 derniers mois
   const chartD = useMemo(()=>{
     const months = [];
     for(let i=5;i>=0;i--){
@@ -3841,7 +3828,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
   },[txs]);
   const cMax=Math.max(...chartD.map(d=>Math.max(d.v,d.d)))*1.2||1;
 
-  // ── Graphique SVG premium — barres animées + courbe de tendance ──
+  // ── Graphique SVG premium, barres animées + courbe de tendance ──
   const BarChart=({data,h=160})=>{
     const [ready,setReady]=useState(false);
     useEffect(()=>{const t=setTimeout(()=>setReady(true),80);return()=>clearTimeout(t);},[]);
@@ -3989,7 +3976,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
 
   const PgDash=()=>(
     <div>
-      {/* ── SOCIAL PROOF BANNER — compteur + note + badges ── */}
+      {/* ── SOCIAL PROOF BANNER, compteur + note + badges ── */}
       <div style={{background:`linear-gradient(135deg,${T.c1},${T.c2})`,border:`1px solid ${T.border}`,borderRadius:16,padding:"12px 16px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <div style={{width:36,height:36,borderRadius:10,background:`${T.gr}18`,border:`1px solid ${T.gr}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🌍</div>
@@ -4039,7 +4026,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         <div style={{position:"relative"}}>
           <div style={{fontWeight:800,fontSize:13,marginBottom:3,display:"flex",alignItems:"center",gap:6}}>
             <span style={{background:accent,color:T.ink,borderRadius:6,padding:"2px 7px",fontSize:10}}>🎯</span>
-            Objectif mensuel — {mkeyLabel(cm)}
+            Objectif mensuel, {mkeyLabel(cm)}
           </div>
           <div style={{fontSize:11,color:T.sub2,marginBottom:10}}>Cible : <strong style={{color:T.text}}>{fmtf(goal)}</strong></div>
           <div style={{background:"rgba(0,0,0,.3)",borderRadius:20,height:6,width:220,overflow:"hidden"}}>
@@ -4054,7 +4041,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
           {gPct>=100&&<div style={{fontSize:11,color:T.gold,fontWeight:700}}>🏆 Objectif dépassé !</div>}
         </div>
       </div>
-      {/* KPIs — 2 colonnes sur mobile, 4 sur grand écran au lieu de 2 cartes étirées */}
+      {/* KPIs, 2 colonnes sur mobile, 4 sur grand écran au lieu de 2 cartes étirées */}
       <div className="pg-grid-kpi" style={{marginBottom:12}}>
         {[
           {ic:"💰",l:"Ventes du mois",v:sales,sub:`${mTxs.filter(t=>t.type==="sale").length} transactions`,co:T.blue,bg:"rgba(26,120,255,.1)",grad:"rgba(26,120,255,.2)"},
@@ -4207,7 +4194,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         <tbody>
           {rows.map(t=>(
             <tr key={t.id} style={{borderBottom:`1px solid ${T.border}`,animation:flashId===t.id?"flashGreen .7s ease":"none",borderRadius:8}}>
-              <td style={{padding:"7px",fontWeight:600,fontSize:11}}>{t.who||"—"}</td>
+              <td style={{padding:"7px",fontWeight:600,fontSize:11}}>{t.who||"-"}</td>
               <td style={{padding:"7px"}}><span style={{background:"rgba(26,120,255,.1)",color:T.blue,borderRadius:20,padding:"1px 6px",fontSize:9}}>{t.cat}</span></td>
               <td style={{padding:"7px"}}><span style={{background:t.type==="sale"?"rgba(0,212,120,.1)":"rgba(255,34,85,.1)",color:t.type==="sale"?T.gr:T.red,borderRadius:20,padding:"1px 6px",fontSize:9}}>{t.type==="sale"?"↑ Vente":"↓ Dépense"}</span></td>
               <td style={{padding:"7px",fontWeight:700,color:t.type==="sale"?T.gr:T.red,fontSize:11,whiteSpace:"nowrap"}}>{t.type==="sale"?"+":"-"}{fmtf(t.amount)}</td>
@@ -4306,7 +4293,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                 )}
               </div>
 
-              <div style={{fontSize:10,color:T.sub2,marginBottom:3}}>Émise : {inv.issued} · Éch. : {inv.due||"—"}</div>
+              <div style={{fontSize:10,color:T.sub2,marginBottom:3}}>Émise : {inv.issued} · Éch. : {inv.due||"-"}</div>
               {inv.payRef&&<div style={{fontSize:9,color:T.teal,marginBottom:7}}>💳 {inv.payRef} · {inv.payProv}</div>}
 
               {/* Bouton principal : Encaisser */}
@@ -4325,12 +4312,19 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
               </div>
               <div style={{display:"flex",gap:3}}>
                 <button onClick={()=>{setFm({...inv,_edit:true});setMdl("inv");}} style={{flex:1,background:"rgba(26,120,255,.07)",border:"none",color:T.blue,borderRadius:7,padding:"4px",cursor:"pointer",fontSize:10,fontWeight:700}}>✏️ Modifier</button>
-                <button onClick={()=>{setConfirm({title:"🗑 Supprimer la facture",msg:`Supprimer la facture ${inv.num} (${fmtPrice(inv.total, inv.currency)}) ?`,confirmLabel:"Supprimer",danger:true,onConfirm:async()=>{setInvs(prev=>prev.filter(x=>x.id!==inv.id));setConfirm(null);const ok=await supaDelete("invoices",inv.id);if(!ok){setInvs(prev=>[inv,...prev]);toast("❌ Suppression échouée — réessayez.","err");return;}toast("🗑 Facture supprimée","warn");}});}} style={{background:"rgba(255,34,85,.08)",border:"none",color:T.red,borderRadius:7,padding:"4px 9px",cursor:"pointer",fontSize:10}}>🗑</button>
+                <button onClick={()=>{setConfirm({title:"🗑 Supprimer la facture",msg:`Supprimer la facture ${inv.num} (${fmtPrice(inv.total, inv.currency)}) ?`,confirmLabel:"Supprimer",danger:true,onConfirm:async()=>{setInvs(prev=>prev.filter(x=>x.id!==inv.id));setConfirm(null);const ok=await supaDelete("invoices",inv.id);if(!ok){setInvs(prev=>[inv,...prev]);toast("❌ Suppression échouée, réessayez.","err");return;}toast("🗑 Facture supprimée","warn");}});}} style={{background:"rgba(255,34,85,.08)",border:"none",color:T.red,borderRadius:7,padding:"4px 9px",cursor:"pointer",fontSize:10}}>🗑</button>
               </div>
             </div>
             );
           })}
-          {invs.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",padding:"2.5rem",color:T.sub,fontSize:12}}>Aucune facture. Créez votre première facture ! 📄</div>}
+          {invs.length===0&&(
+            <div style={{gridColumn:"1/-1",textAlign:"center",padding:"3rem 1.5rem",background:T.c1,border:`1px solid ${T.border}`,borderRadius:20}}>
+              <div style={{fontSize:52,marginBottom:12}}>🧾</div>
+              <div style={{fontWeight:800,fontSize:15,marginBottom:6}}>Aucune facture</div>
+              <div style={{fontSize:12,color:T.sub2,marginBottom:16,lineHeight:1.6}}>Chaque vente enregistrée génère automatiquement une facture. Créez la première pour commencer à encaisser.</div>
+              <Btn ch="+ Nouvelle facture" onClick={()=>{setFm({issued:today(),status:"pending",tax:0,currency:DEFAULT_CURRENCY,items:[{id:xid(),name:"",qty:1,price:0}]});setMdl("inv");}}/>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -4362,11 +4356,18 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             <div style={{display:"flex",gap:4}}>
               <button onClick={()=>{setFm({...cl,_edit:true});setMdl("cli");}} style={{flex:1,background:"rgba(26,120,255,.1)",border:"none",color:T.blue,borderRadius:7,padding:"5px",cursor:"pointer",fontSize:10,fontWeight:700}}>✏️</button>
               <button onClick={()=>{const ph=cleanP(cl.phone);const m=encodeURIComponent("Bonjour "+cl.name.split(" ")[0]+"\n"+ses.business+" vous contacte.");window.open(`https://wa.me/${ph}?text=${m}`,"_blank");}} style={{flex:1,background:"rgba(37,211,102,.1)",border:"none",color:"#25D366",borderRadius:7,padding:"5px",cursor:"pointer",fontSize:10,fontWeight:700}}>📱</button>
-              <button onClick={()=>{setConfirm({title:"🗑 Supprimer le client",msg:`Supprimer ${cl.name} de votre liste clients ?`,confirmLabel:"Supprimer",danger:true,onConfirm:async()=>{setClis(prev=>prev.filter(x=>x.id!==cl.id));setConfirm(null);const ok=await supaDelete("clients",cl.id);if(!ok){setClis(prev=>[cl,...prev]);toast("❌ Suppression échouée — réessayez.","err");return;}toast("🗑 "+cl.name+" supprimé","warn");}});}} style={{background:"rgba(255,34,85,.1)",border:"none",color:T.red,borderRadius:7,padding:"5px 9px",cursor:"pointer",fontSize:10}}>🗑</button>
+              <button onClick={()=>{setConfirm({title:"🗑 Supprimer le client",msg:`Supprimer ${cl.name} de votre liste clients ?`,confirmLabel:"Supprimer",danger:true,onConfirm:async()=>{setClis(prev=>prev.filter(x=>x.id!==cl.id));setConfirm(null);const ok=await supaDelete("clients",cl.id);if(!ok){setClis(prev=>[cl,...prev]);toast("❌ Suppression échouée, réessayez.","err");return;}toast("🗑 "+cl.name+" supprimé","warn");}});}} style={{background:"rgba(255,34,85,.1)",border:"none",color:T.red,borderRadius:7,padding:"5px 9px",cursor:"pointer",fontSize:10}}>🗑</button>
             </div>
           </div>
         ))}
-        {clis.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",padding:"2.5rem",color:T.sub,fontSize:12}}>Ajoutez votre premier client pour commencer. 👥</div>}
+        {clis.length===0&&(
+          <div style={{gridColumn:"1/-1",textAlign:"center",padding:"3rem 1.5rem",background:T.c1,border:`1px solid ${T.border}`,borderRadius:20}}>
+            <div style={{fontSize:52,marginBottom:12}}>👥</div>
+            <div style={{fontWeight:800,fontSize:15,marginBottom:6}}>Aucun client</div>
+            <div style={{fontSize:12,color:T.sub2,marginBottom:16,lineHeight:1.6}}>Ajoutez votre premier client pour suivre son chiffre d'affaires et ses factures automatiquement.</div>
+            <Btn ch="+ Ajouter un client" onClick={()=>{setFm({pays:normalizeLegacyCountry(ses.country)||"CI",ville:"",cat:"Commerce",status:"active"});setMdl("cli");}}/>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -4446,7 +4447,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
       if (!validateEmp()) return;
       // Limite du plan actuel (1 en Free, 5 en Pro, illimité en Business)
       if (!isAdmin && emps.length >= (plan.maxEmp ?? 1)) {
-        toast(plan.maxEmp===1 ? t("empFreePlan") : `🔒 Plan ${plan.label} — ${plan.maxEmp} employés max. Passez à Business pour une équipe illimitée !`, "warn"); return;
+        toast(plan.maxEmp===1 ? t("empFreePlan") : `🔒 Plan ${plan.label}, ${plan.maxEmp} employés max. Passez à Business pour une équipe illimitée !`, "warn"); return;
       }
       setSaving(true);
       const emp = {
@@ -4467,7 +4468,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         const { error } = await s.from("employees").insert(emp);
         if (error) {
           setEmps(prev => prev.filter(e => e.id !== emp.id));
-          toast("❌ Erreur sauvegarde — réessayez", "err");
+          toast("❌ Erreur sauvegarde, réessayez", "err");
           console.error("employees insert:", error);
         } else { markUserActive(uid); }
       } catch(e) {
@@ -4499,7 +4500,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         }).eq("id", updated.id);
         if (error) {
           if (prevEmp) setEmps(prev => prev.map(e => e.id === updated.id ? prevEmp : e));
-          toast("❌ Modification non sauvegardée — réessayez", "err");
+          toast("❌ Modification non sauvegardée, réessayez", "err");
           console.error("employees update:", error);
         } else {
           toast(t("empEdited"));
@@ -4526,7 +4527,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             const { error } = await s.from("employees").delete().eq("id", emp.id);
             if (error) {
               setEmps(prev => [emp, ...prev]);
-              toast("❌ Suppression échouée — réessayez", "err");
+              toast("❌ Suppression échouée, réessayez", "err");
               console.error("employees delete:", error);
             } else {
               toast(t("empDeleted"), "warn");
@@ -4559,7 +4560,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         const s = await getSupa();
         const { error } = await s.from("payments").insert(payment);
         if (error) {
-          toast("❌ Erreur paiement — réessayez", "err");
+          toast("❌ Erreur paiement, réessayez", "err");
           console.error("payments insert:", error);
         } else {
           setPays(prev => [payment, ...prev]);
@@ -4743,7 +4744,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                   <div style={{ width:34, height:34, borderRadius:10, background:`${T.gr}18`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>✅</div>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontWeight:700, fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                      {p.employees?.name || emps.find(e=>e.id===p.employee_id)?.name || "—"}
+                      {p.employees?.name || emps.find(e=>e.id===p.employee_id)?.name || "-"}
                     </div>
                     <div style={{ fontSize:10, color:T.sub2 }}>{p.date}</div>
                   </div>
@@ -4909,7 +4910,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             // ── Partage WhatsApp ──
             const handleWhatsApp = () => {
               const empPhone = emps.find(e=>e.name===lastReceipt.name)?.phone || "";
-              const msg = `🧾 *Reçu de salaire — ${businessName}*\n\n👤 Employé : ${lastReceipt.name}\n💰 Montant : ${fmtReceiptAmt(lastReceipt.amount, lastReceipt.currency)}\n📅 Date : ${lastReceipt.date}\n✅ Statut : Payé\n\nN° ${receiptNum}\n\n_Généré par VierAfrik · vierafrik.com_`;
+              const msg = `🧾 *Reçu de salaire, ${businessName}*\n\n👤 Employé : ${lastReceipt.name}\n💰 Montant : ${fmtReceiptAmt(lastReceipt.amount, lastReceipt.currency)}\n📅 Date : ${lastReceipt.date}\n✅ Statut : Payé\n\nN° ${receiptNum}\n\n_Généré par VierAfrik · vierafrik.com_`;
               const ph = empPhone.replace(/\D/g,"");
               const url = ph
                 ? `https://wa.me/${ph}?text=${encodeURIComponent(msg)}`
@@ -5100,7 +5101,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
           </div>
         </div>
 
-        {/* Statistiques avancées — Business */}
+        {/* Statistiques avancées, Business */}
         <div style={{background:`linear-gradient(135deg,${T.c1},${T.c2})`,border:`1px solid ${plan.advancedStats?T.gold+"33":T.border}`,borderRadius:16,padding:"1.2rem",marginTop:14,position:"relative",overflow:"hidden"}}>
           <div style={{fontWeight:800,fontSize:13,marginBottom:14,display:"flex",alignItems:"center",gap:8,letterSpacing:"-.02em"}}>
             <span style={{background:`${T.gold}18`,border:`1px solid ${T.gold}30`,borderRadius:8,padding:"4px 8px",fontSize:12}}>🏆</span>
@@ -5210,6 +5211,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                 {ic:"⭐",label:"Avis clients",        sub:"Notes et commentaires",  col:T.gold,   fn:()=>{setPage("avis");setShowPanel(false);}},
                 {ic:"📊",label:"Voir mes gains",      sub:"Tableau de bord",              col:T.gr,     fn:()=>{setPage("dash");setShowPanel(false);}},
                 {ic:"📈",label:"Statistiques",        sub:"Analyses détaillées",    col:T.blue,   fn:()=>{setPage("stats");setShowPanel(false);}},
+                {ic:"💱",label:"Comparateur de prix", sub:"Comparer entre pays",    col:T.teal,   fn:()=>{setPage("prices");setShowPanel(false);}},
               ].map(({ic,label,sub,col,fn})=>(
                 <button key={label} onClick={fn}
                   style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"9px 10px",marginBottom:6,background:`${col}12`,border:`1px solid ${col}33`,borderRadius:13,cursor:"pointer",fontFamily:"inherit",textAlign:"left",transition:"all .18s"}}
@@ -5248,10 +5250,10 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     const isAfrica = detectIsAfrica();
     const currency = detectCurrency();
 
-    // Lancer le paiement pour un plan donné — FedaPay en réel, simulation locale en mode test
+    // Lancer le paiement pour un plan donné, FedaPay en réel, simulation locale en mode test
     const doSubPayment=async(planKey,planObj)=>{
       if(TEST_MODE){
-        toast("🧪 Mode test — activation simulée, aucun paiement réel","ok",T.gold);
+        toast("🧪 Mode test, activation simulée, aucun paiement réel","ok",T.gold);
         try{
           const s=await getSupa();
           const expires=new Date(Date.now()+30*24*60*60*1000).toISOString();
@@ -5260,10 +5262,10 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             is_trial:false,paid_at:new Date().toISOString(),expires_at:expires,
             created_at:new Date().toISOString(),updated_at:new Date().toISOString(),
           });
-          if(error){console.error("❌ [TEST_MODE] Insert échoué:",error);toast("❌ Erreur activation test — réessayez","err");return;}
+          if(error){console.error("❌ [TEST_MODE] Insert échoué:",error);toast("❌ Erreur activation test, réessayez","err");return;}
           await loadSubscription();
           toast(`✅ Plan ${planObj.label} activé (mode test) !`,"ok",T.gr);
-        }catch(e){console.error("❌ [TEST_MODE] Activation échouée:",e);toast("❌ Erreur activation test — réessayez","err");}
+        }catch(e){console.error("❌ [TEST_MODE] Activation échouée:",e);toast("❌ Erreur activation test, réessayez","err");}
         return;
       }
       toast("⏳ Création du paiement…","ok");
@@ -5276,11 +5278,11 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         const data=await res.json();
         const url=data?.payment_url||data?.url||data?.transaction?.payment_url;
         if(url){window.location.href=url;}
-        else{console.error("❌ [FedaPay] Réponse inattendue:",data);toast("❌ "+(data?.message||data?.error||"Erreur paiement — réessayez"),"err");}
-      }catch(e){console.error("❌ [FedaPay] Exception:",e);toast("❌ Erreur réseau — vérifiez votre connexion","err");}
+        else{console.error("❌ [FedaPay] Réponse inattendue:",data);toast("❌ "+(data?.message||data?.error||"Erreur paiement, réessayez"),"err");}
+      }catch(e){console.error("❌ [FedaPay] Exception:",e);toast("❌ Erreur réseau, vérifiez votre connexion","err");}
     };
 
-    // Rétrograder au plan gratuit — annule réellement l'abonnement actif en
+    // Rétrograder au plan gratuit, annule réellement l'abonnement actif en
     // base (au lieu de ne changer que l'état local, qui se rétablissait tout
     // seul dès le prochain loadSubscription() puisque la ligne "active" en
     // base ne bougeait jamais).
@@ -5297,7 +5299,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             const {data:current}=await s.from("subscriptions").select("id").eq("user_id",ses.id).eq("status","active").order("paid_at",{ascending:false}).limit(1).maybeSingle();
             if(current?.id){
               const {error}=await s.from("subscriptions").update({status:"cancelled",updated_at:new Date().toISOString()}).eq("id",current.id);
-              if(error){console.error("❌ [downgrade] Échec:",error);toast("❌ Erreur — réessayez","err");return;}
+              if(error){console.error("❌ [downgrade] Échec:",error);toast("❌ Erreur, réessayez","err");return;}
             }
             await loadSubscription();
             toast("✅ Repassé en plan Free","ok",T.gr);
@@ -5309,7 +5311,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     // Statut abonnement affiché
     const subStatusColor=isSubActive?T.gr:(subscription?.status==="expired"?T.red:T.sub);
     const subStatusLabel=subLoading?"⏳ Chargement…":
-      isSubActive?`${subscription.is_trial?"🎁 Essai gratuit":"✅ Actif"} — ${subscription.days_left} jour${subscription.days_left>1?"s":""} restant${subscription.days_left>1?"s":""}`:
+      isSubActive?`${subscription.is_trial?"🎁 Essai gratuit":"✅ Actif"}, ${subscription.days_left} jour${subscription.days_left>1?"s":""} restant${subscription.days_left>1?"s":""}`:
       subscription?.status==="expired"?"🔴 Expiré":"🌱 Plan gratuit";
 
     return(
@@ -5319,7 +5321,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
       {TEST_MODE && (
         <div style={{background:`${T.gold}12`,border:`1px solid ${T.gold}33`,borderRadius:12,padding:"9px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:9}}>
           <span style={{fontSize:16}}>🧪</span>
-          <div style={{fontSize:11,color:T.gold,fontWeight:700}}>Mode test — les mises à niveau ci-dessous n'effectuent aucun paiement réel.</div>
+          <div style={{fontSize:11,color:T.gold,fontWeight:700}}>Mode test, les mises à niveau ci-dessous n'effectuent aucun paiement réel.</div>
         </div>
       )}
 
@@ -5350,7 +5352,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
               </div>
             )}
             {!subscription&&!subLoading&&(
-              <div style={{fontSize:11,color:T.sub2}}>Aucun abonnement actif — fonctions limitées</div>
+              <div style={{fontSize:11,color:T.sub2}}>Aucun abonnement actif, fonctions limitées</div>
             )}
           </div>
           {/* Barre de progression jours restants */}
@@ -5390,7 +5392,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
 
       <div style={{fontSize:11,color:T.sub2,marginBottom:18}}>Plan actuel : <strong style={{color:PLANS[activePlan].col}}>{PLANS[activePlan].emoji} {PLANS[activePlan].label}</strong></div>
 
-      {/* Bannière conversion devise — hors Afrique uniquement */}
+      {/* Bannière conversion devise, hors Afrique uniquement */}
       {!isAfrica&&(
         <div style={{background:`linear-gradient(135deg,${T.gold}10,${T.orange}06)`,border:`1px solid ${T.gold}33`,borderRadius:12,padding:"10px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
           <span style={{fontSize:18}}>🌍</span>
@@ -5440,7 +5442,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                     :`${p.price.toLocaleString("fr-FR")} FCFA`}
                   {p.price>0&&<span style={{fontSize:12,fontWeight:400,color:T.sub}}>/mois</span>}
                 </div>
-                {/* Équivalent devise — hors Afrique uniquement */}
+                {/* Équivalent devise, hors Afrique uniquement */}
                 {!isAfrica&&p.price>0&&(
                   <div style={{marginTop:3,fontSize:12,color:T.sub2,fontWeight:600}}>
                     {currency==="EUR"
@@ -5464,7 +5466,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                 <Btn full sx={{marginTop:15}} v="g" ch="Rétrograder" onClick={doDowngrade}/>
               )}
               {isCur&&k==="free"&&(
-                <Btn full sx={{marginTop:15}} v="out" ch={`Passer à Pro — ${fmtPriceShort(PLANS.pro.price)}/mois →`} onClick={()=>doSubPayment("pro",PLANS.pro)}/>
+                <Btn full sx={{marginTop:15}} v="out" ch={`Passer à Pro, ${fmtPriceShort(PLANS.pro.price)}/mois →`} onClick={()=>doSubPayment("pro",PLANS.pro)}/>
               )}
               {isCur&&k!=="free"&&isSubActive&&(
                 <div style={{marginTop:15,textAlign:"center",fontSize:11,color:p.col,fontWeight:700}}>
@@ -5496,7 +5498,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
   // ── PgParams extrait comme composant stable pour éviter la perte de focus ──
   // IMPORTANT : défini via useCallback pour garantir une identité stable entre les renders
   const PgParams = useCallback(()=>{
-    // États locaux stables — ne dépendent plus du re-render de Dashboard
+    // États locaux stables, ne dépendent plus du re-render de Dashboard
     const [localProfile, setLocalProfile] = useState({
       name: ses.name||"",
       biz: ses.business||"",
@@ -5519,7 +5521,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     const validatePhone=(val)=>{
       if(!val||val.trim()==="")return "";
       const clean=val.replace(/[\s\-\.\(\)]/g,"");
-      if(!/^[\+\d]/.test(clean))return "Format invalide — ex: +225 07 000 0000";
+      if(!/^[\+\d]/.test(clean))return "Format invalide, ex: +225 07 000 0000";
       const digits=clean.replace(/\+/g,"");
       if(digits.length<7)return "Numéro trop court";
       if(digits.length>15)return "Numéro trop long";
@@ -5714,7 +5716,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
           </div>
 
           {/* ════════════════════════════════════════
-               🔧 DIAGNOSTIC SUPABASE — Section Compte
+               🔧 DIAGNOSTIC SUPABASE, Section Compte
                ════════════════════════════════════════ */}
           <SupaDiagPanel uid={ses.id} userEmail={ses.email} />
 
@@ -5810,7 +5812,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         {/* Moyenne globale */}
         <div style={{background:`linear-gradient(135deg,${T.gold}18,${T.c1})`,border:`2px solid ${T.gold}44`,borderRadius:20,padding:"1.4rem",marginBottom:16,display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
           <div style={{textAlign:"center",flexShrink:0}}>
-            <div style={{fontSize:52,fontWeight:900,color:T.gold,lineHeight:1,letterSpacing:"-.04em"}}>{loadingAvis?"…":moyenne||"—"}</div>
+            <div style={{fontSize:52,fontWeight:900,color:T.gold,lineHeight:1,letterSpacing:"-.04em"}}>{loadingAvis?"…":moyenne||"-"}</div>
             <div style={{fontSize:11,color:T.sub2,marginTop:2}}>sur 5</div>
             <div style={{marginTop:6}}>{stars(moyenne,false,16)}</div>
           </div>
@@ -5918,7 +5920,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
           const rows=data||[];
           const paidRows=rows.filter(r=>r.plan==="pro"||r.plan==="business");
           const earnings=paidRows.reduce((s,r)=>s+(r.commission||0),0);
-          setStats({total:rows.length,paid:paidRows.length,earnings,list:rows.slice(0,10).map(r=>({email:r.referred_email||"—",plan:r.plan||"free",commission:r.commission||0,date:r.created_at?.slice(0,10)||""}))});
+          setStats({total:rows.length,paid:paidRows.length,earnings,list:rows.slice(0,10).map(r=>({email:r.referred_email||"-",plan:r.plan||"free",commission:r.commission||0,date:r.created_at?.slice(0,10)||""}))});
         }catch(e){setStats({total:0,paid:0,earnings:0,list:[]});}
         finally{setLoadingStats(false);}
       })();
@@ -5977,7 +5979,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                 <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:T.c3,borderRadius:10,fontSize:11}}>
                   <span style={{color:T.sub2,flex:1}}>{r.email}</span>
                   <span style={{background:r.plan==="free"?"rgba(74,112,144,.2)":r.plan==="pro"?`${T.gr}20`:`${T.gold}20`,color:r.plan==="free"?T.sub:r.plan==="pro"?T.gr:T.gold,borderRadius:20,padding:"2px 8px",fontSize:9,fontWeight:700,marginRight:8}}>{r.plan.toUpperCase()}</span>
-                  <span style={{fontWeight:700,color:r.commission>0?T.gr:T.sub}}>{r.commission>0?r.commission.toLocaleString()+" FCFA":"—"}</span>
+                  <span style={{fontWeight:700,color:r.commission>0?T.gr:T.sub}}>{r.commission>0?r.commission.toLocaleString()+" FCFA":"-"}</span>
                 </div>
               ))}
             </div>
@@ -5987,7 +5989,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         <div style={{background:"rgba(240,176,32,.06)",border:"1px solid rgba(240,176,32,.2)",borderRadius:16,padding:"1.2rem"}}>
           <div style={{fontWeight:700,color:T.gold,fontSize:13,marginBottom:4}}>💳 Demander votre paiement</div>
           <div style={{fontSize:11,color:T.sub2,marginBottom:12}}>Minimum 5 000 FCFA · Paiement sous 48h via Mobile Money</div>
-          <Btn full v="gold" ch={"💰 Demander le paiement — "+Math.round(stats.earnings).toLocaleString()+" FCFA"} onClick={()=>{
+          <Btn full v="gold" ch={"💰 Demander le paiement, "+Math.round(stats.earnings).toLocaleString()+" FCFA"} onClick={()=>{
             if(stats.earnings<5000){toast("⚠️ Minimum 5 000 FCFA requis. Continuez à parrainer !","warn");return;}
             const msg="Bonjour VierAfrik,\n\nJe suis ambassadeur et je souhaite recevoir mes gains.\n\nNom: "+ses.name+"\nEmail: "+ses.email+"\nCode parrain: "+ses.refCode+"\nGains: "+Math.round(stats.earnings)+" FCFA\n\nMerci.";
             window.open("https://wa.me/"+cleanP("+31627374813")+"?text="+encodeURIComponent(msg),"_blank");
@@ -6028,7 +6030,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
 
 
 
-  // ── CarteVisite Component — aperçu live, styles, téléchargement image ──
+  // ── CarteVisite Component, aperçu live, styles, téléchargement image ──
   function CarteVisite({ user, accent = "#00d478", toast }) {
     const [carte, setCarte] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -6103,7 +6105,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
       setSaving(false);
     };
 
-    // Télécharger comme image PNG — capture directe de l'aperçu réel (cardRef)
+    // Télécharger comme image PNG, capture directe de l'aperçu réel (cardRef)
     // avec html2canvas, pour que le fichier téléchargé corresponde TOUJOURS
     // exactement à ce qui est affiché (style, couleurs, tous les champs
     // remplis) au lieu de redessiner une version approximative à la main.
@@ -6125,7 +6127,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
           toast("✅ Carte téléchargée !");
         }
       } catch(e) {
-        toast("❌ Erreur de téléchargement — réessaie.", "err");
+        toast("❌ Erreur de téléchargement, réessaie.", "err");
       }
     };
 
@@ -6141,7 +6143,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
       <div>
         <div style={{ fontWeight:900, fontSize:20, marginBottom:4 }}>📇 Carte de Visite</div>
         <div style={{ fontSize:11, color:T.sub2, marginBottom:16 }}>
-          {carte ? "✅ Carte sauvegardée — modifiable à tout moment" : "Créez votre carte de visite professionnelle"}
+          {carte ? "✅ Carte sauvegardée, modifiable à tout moment" : "Créez votre carte de visite professionnelle"}
         </div>
 
         {/* ── APERÇU EN TEMPS RÉEL ── */}
@@ -6439,7 +6441,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
     },
   ];
 
-  // Télécharger le logo — capture directe de l'aperçu réel (logoRef) avec
+  // Télécharger le logo, capture directe de l'aperçu réel (logoRef) avec
   // html2canvas, pour que le fichier téléchargé corresponde exactement à ce
   // qui est affiché (forme, couleurs, nom) quel que soit le style choisi,
   // au lieu de le redessiner à la main (ce qui perdait le nom et la forme
@@ -6451,7 +6453,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       const container = logoRef.current;
       const canvas = await html2canvas(container, { scale: 3, backgroundColor: null, useCORS: true });
 
-      // html2canvas ne sait pas reproduire le CSS clip-path — le style
+      // html2canvas ne sait pas reproduire le CSS clip-path, le style
       // "Bouclier" (hexagone) ressortait donc en simple rectangle au
       // téléchargement, une forme différente de celle affichée dans
       // l'aperçu. On réapplique manuellement le découpage sur le canvas
@@ -6506,7 +6508,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
         toast?.("✅ Logo téléchargé !");
       }
     } catch(e) {
-      toast?.("❌ Erreur téléchargement — réessaie.", "err");
+      toast?.("❌ Erreur téléchargement, réessaie.", "err");
     }
   };
 
@@ -6636,11 +6638,12 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
 }
   const PgLogo = () => <LogoGenerator user={ses} accent={accent} toast={toast}/>;
   const PgSmartQR = () => <SmartQRPage user={ses} isAdmin={isAdmin} />;
+  const PgPrices = () => <PriceComparator user={ses} accent={accent} toast={toast} getSupa={getSupa}/>;
 
   // ── FIN PgActionRapide ──
 
 
-  // ─── ⚡ ACTION RAPIDE — dans Dashboard (accès scope) ───
+  // ─── ⚡ ACTION RAPIDE, dans Dashboard (accès scope) ───
   // ─── ⚡ ACTION RAPIDE ───
   const PgActionRapide = useCallback(function PgActionRapide(){
     const [screen, setScreen]       = useState(1);
@@ -6650,7 +6653,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
     const [loadingP, setLoadingP]   = useState(false);
     const [published, setPublished] = useState(false);
     const [propForm, setPropForm]   = useState({country:normalizeLegacyCountry(ses?.country)||"CI",city:"",phone:"",desc:"",imageUrl:"",imageFile:null});
-    // v35 — Plusieurs photos au lieu d'une seule (max 5) pour inspirer confiance
+    // v35, Plusieurs photos au lieu d'une seule (max 5) pour inspirer confiance
     const MAX_PROP_IMAGES = 5;
     const [propImages, setPropImages] = useState([]); // tableau de data-URLs compressées
     const propPreview = propImages[0] || null;
@@ -6659,7 +6662,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       setPropImages(list => list.includes(img) ? list : (list.length>=MAX_PROP_IMAGES ? list : [...list, img]));
     };
     const removePropImage = (idx) => setPropImages(list => list.filter((_,i)=>i!==idx));
-    // Vidéo courte (optionnelle, alternative aux photos — une annonce a
+    // Vidéo courte (optionnelle, alternative aux photos, une annonce a
     // soit des photos, soit une vidéo, jamais besoin de mélanger).
     const [propVideo, setPropVideo]     = useState(null); // { url, thumbnailUrl, durationSec }
     const [captureFor, setCaptureFor]   = useState(null); // "photo" | "video" | null
@@ -6691,7 +6694,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       {id:"business",  label:"Business",     emoji:"💼", col:"#1a78ff", bg:"rgba(26,120,255,.08)",
        img:"https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=400&q=75", desc:"Import-export, commerce"},
     ];
-    // Liste plate de toutes les villes connues (filtre simple — voir Stage 2 pour un filtre pays+ville structuré)
+    // Liste plate de toutes les villes connues (filtre simple, voir Stage 2 pour un filtre pays+ville structuré)
     const AR_VILLES = Array.from(new Set(COUNTRIES.flatMap(c => c.cities))).sort();
 
     const catObj = AR_CATS.find(c=>c.id===selCat);
@@ -6713,7 +6716,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
     const trackAR=async(type,action="")=>{
       try{const s=await getSupa();await s.from("quick_events").insert({id:xid(),type,category:selCat,city:propForm.city||filterCity||"",action,timestamp:new Date().toISOString()});}catch(e){}
     };
-    // ── Photo(s) — caméra intégrée + envoi Storage (remplace l'ancien base64) ──
+    // ── Photo(s), caméra intégrée + envoi Storage (remplace l'ancien base64) ──
     const handlePhotoCaptureDone=async(result)=>{
       setCaptureFor(null);
       if(propImages.length>=MAX_PROP_IMAGES){toast(`📷 Maximum ${MAX_PROP_IMAGES} photos`,"warn");return;}
@@ -6723,10 +6726,10 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
         const url=await uploadNetworkMedia(s,ses?.id,result.blob,{folder:"posts",ext:"jpg",contentType:"image/jpeg"});
         addPropImage(url);
         setPropForm(p=>({...p,imageUrl:p.imageUrl||url}));
-      }catch(e){toast("❌ Envoi de la photo échoué — réessaie","err");}
+      }catch(e){toast("❌ Envoi de la photo échoué, réessaie","err");}
       finally{setUploadingMedia(false);}
     };
-    // ── Vidéo courte — alternative aux photos ──
+    // ── Vidéo courte, alternative aux photos ──
     const handleVideoCaptureDone=async(result)=>{
       setCaptureFor(null);
       setUploadingMedia(true);
@@ -6739,7 +6742,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
         }
         setPropVideo({url:videoUrl,thumbnailUrl:thumbUrl,durationSec:result.durationSec});
         toast("✅ Vidéo ajoutée !");
-      }catch(e){toast("❌ Envoi de la vidéo échoué — réessaie","err");}
+      }catch(e){toast("❌ Envoi de la vidéo échoué, réessaie","err");}
       finally{setUploadingMedia(false);}
     };
     const handlePublish=async()=>{
@@ -6768,8 +6771,8 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
             await s.from("quick_posts").insert(basePayload);
             await trackAR("propose","publish");
             setPublished(true);
-          }catch(e2){toast("Erreur — réessayez","err");}
-        } else toast("Erreur — réessayez","err");
+          }catch(e2){toast("Erreur, réessayez","err");}
+        } else toast("Erreur, réessayez","err");
       }
       finally{setLoadingP(false);}
     };
@@ -6806,7 +6809,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       </button>
     );
 
-    // ── Écran 1 — Catégories ──
+    // ── Écran 1, Catégories ──
     if(screen===1) return(
       <div style={{animation:"slideUp .3s ease both"}}>
         <div style={{textAlign:"center",marginBottom:"1.4rem"}}>
@@ -6837,7 +6840,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       </div>
     );
 
-    // ── Écran 2 — Intention ──
+    // ── Écran 2, Intention ──
     if(screen===2) return(
       <div style={{maxWidth:440,margin:"0 auto",animation:"slideUp .3s ease both"}}>
         <BackBtn to={resetAR}/>
@@ -6864,7 +6867,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       </div>
     );
 
-    // ── Écran 3A — Je propose ──
+    // ── Écran 3A, Je propose ──
     if(screen===3&&mode==="propose"){
       if(published) return(
         <div style={{maxWidth:460,margin:"0 auto",textAlign:"center",animation:"slideUp .3s ease both"}}>
@@ -6895,9 +6898,9 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
           <BackBtn to={()=>setScreen(2)}/>
           <div style={{textAlign:"center",marginBottom:"1.4rem"}}>
             <div style={{fontWeight:900,fontSize:22,letterSpacing:"-.04em",marginBottom:4}}>📢 Mon <span style={{color:accent}}>service</span></div>
-            <div style={{fontSize:12,color:T.sub2}}>Remplis en 30 secondes — tes clients te trouvent</div>
+            <div style={{fontSize:12,color:T.sub2}}>Remplis en 30 secondes, tes clients te trouvent</div>
           </div>
-          {/* Photo(s) OU vidéo courte — une annonce a l'un ou l'autre, jamais les deux */}
+          {/* Photo(s) OU vidéo courte, une annonce a l'un ou l'autre, jamais les deux */}
           {!propVideo && (
           <div style={{marginBottom:13}}>
             <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:T.sub,marginBottom:5}}>
@@ -6931,7 +6934,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
             )}
           </div>
           )}
-          {/* Vidéo courte — alternative aux photos, cachée dès qu'une photo est ajoutée */}
+          {/* Vidéo courte, alternative aux photos, cachée dès qu'une photo est ajoutée */}
           {propImages.length===0 && (
           <div style={{marginBottom:13}}>
             <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:T.sub,marginBottom:5}}>🎥 Ou une vidéo courte (optionnel)</div>
@@ -6952,7 +6955,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
             )}
           </div>
           )}
-          {/* Images professionnelles — COMPLÈTEMENT séparées de l'input file */}
+          {/* Images professionnelles, COMPLÈTEMENT séparées de l'input file */}
           {!propVideo && propImages.length<MAX_PROP_IMAGES && catObj && (
             <div style={{marginBottom:13}}>
               <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em",color:T.sub,marginBottom:6}}>🖼️ Ou ajouter une image professionnelle</div>
@@ -7025,7 +7028,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       );
     }
 
-    // ── Écran 3B — Je cherche ──
+    // ── Écran 3B, Je cherche ──
     if(screen===3&&mode==="search") return(
       <div style={{animation:"slideUp .3s ease both"}}>
         <BackBtn to={()=>setScreen(2)}/>
@@ -7126,15 +7129,15 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
   // CoachIA a un état interne (conversation, brouillon) qui doit survivre
   // aux re-renders de Dashboard. Un wrapper `useCallback` qui retourne du
   // JSX change de référence à chaque changement de dépendance (clis/invs/
-  // ventes/etc, donc quasiment à chaque action) — React voit alors un
+  // ventes/etc, donc quasiment à chaque action), React voit alors un
   // composant "différent" à cette position et démonte/remonte CoachIA,
   // perdant silencieusement la conversation en cours. On rend <CoachIA/>
   // directement (type d'élément stable = l'import du module) pour que
   // seules les props changent, jamais l'identité du composant.
-  // Rendu dynamique — les pages lisent txs/clis/invs depuis la closure
+  // Rendu dynamique, les pages lisent txs/clis/invs depuis la closure
   // et se re-rendent à chaque changement de state. C'est le comportement correct.
   const renderActivePage = () => {
-    // ── Guard abonnement — bloquer les pages premium si expiré ──
+    // ── Guard abonnement, bloquer les pages premium si expiré ──
     // Admin = toujours accès total
     if(!isAdmin && !subLoading && isPremiumPage(page) && !isSubActive){
       return <SubscriptionExpiredScreen onRenew={()=>setPage("plans")}/>;
@@ -7158,6 +7161,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       case "carte":  return <PgCarteVisite/>;
       case "logo":   return <PgLogo/>;
       case "qr":     return <PgSmartQR/>;
+      case "prices": return <PgPrices/>;
       default:       return <PgDash/>;
     }
   };
@@ -7229,7 +7233,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
           {NAV.map(n=><TabBtn key={n.id} {...n}/>)}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
-          {/* Raccourci plan Free — les limites réelles s'affichent sur chaque page (clients/factures/transactions) */}
+          {/* Raccourci plan Free, les limites réelles s'affichent sur chaque page (clients/factures/transactions) */}
           {!isAdmin&&!isSubActive&&(
             <button onClick={()=>setPage("plans")} title="Voir les plans"
               style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,padding:"3px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:5,color:T.sub,fontSize:10,fontWeight:700,flexShrink:0}}>
@@ -7261,7 +7265,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
           <div style={{background:"rgba(255,34,85,.12)",border:"1px solid rgba(255,34,85,.5)",borderRadius:0,padding:"10px 18px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <span style={{fontSize:16}}>🚨</span>
             <div style={{flex:1}}>
-              <div style={{fontWeight:800,fontSize:12,color:"#ff2255"}}>Cle Supabase invalide — les enregistrements ne seront pas sauvegardes !</div>
+              <div style={{fontWeight:800,fontSize:12,color:"#ff2255"}}>Cle Supabase invalide, les enregistrements ne seront pas sauvegardes !</div>
               <div style={{fontSize:11,color:"#ff6680",marginTop:2}}>Allez dans Compte → Diagnostic Supabase → collez votre anon key (eyJ...) depuis Supabase Dashboard → Settings → API</div>
             </div>
             <button onClick={()=>setPage("prefs")} style={{background:"#ff2255",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontFamily:"inherit",fontWeight:800,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>Corriger maintenant</button>
@@ -7276,13 +7280,15 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       <Toasts list={tsts}/>
       {confirmState&&<ConfirmModal open={!!confirmState} onClose={()=>setConfirm(null)} onConfirm={confirmState.onConfirm} title={confirmState.title} msg={confirmState.msg} confirmLabel={confirmState.confirmLabel} danger={confirmState.danger}/>}
 
-      {/* ── NOTIFICATION D'ACTIVITÉ — composant isolé, zéro re-render Dashboard ── */}
-      <ActivityNotifWidget/>
+      {/* ── Notification d'activité désactivée : les messages étaient fictifs
+          (liste fixe, pas de vraies données), ce qui nuit à la confiance dès
+          qu'un utilisateur revoit le même message. À réactiver uniquement si
+          branché sur de vrais événements (ex: table user_activity). ── */}
 
       {/* BOUTON FLOTTANT AIDE */}
       <FloatingBtns/>
 
-      {/* WELCOME VIDEO OVERLAY — première visite */}
+      {/* WELCOME VIDEO OVERLAY, première visite */}
       {showWelcomeVideo&&(
         <div onClick={()=>setShowWelcomeVideo(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",zIndex:980,display:"flex",alignItems:"flex-end",justifyContent:"center",padding:"0 0 72px",backdropFilter:"blur(16px)"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:`linear-gradient(160deg,${T.c1},${T.c2})`,border:`2px solid ${accent}44`,borderRadius:24,padding:"1.8rem",width:"92%",maxWidth:420,boxShadow:`0 -30px 80px rgba(0,0,0,.9),0 0 0 1px ${accent}22`,animation:"pop .35s cubic-bezier(.34,1.56,.64,1)"}}>
@@ -7337,7 +7343,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
         </div>
       )}
 
-      {/* BARRE NAV BAS — MOBILE UNIQUEMENT */}
+      {/* BARRE NAV BAS, MOBILE UNIQUEMENT */}
       <nav className="mobile-nav" style={{position:"fixed",bottom:0,left:0,right:0,zIndex:400,height:58,alignItems:"center",justifyContent:"space-around",background:"rgba(1,3,6,.97)",backdropFilter:"blur(20px)",borderTop:`1px solid ${T.border}`,padding:"0 2px"}}>
         {NAV_BOTTOM.map(n=>(
           <button key={n.id} onClick={()=>{if(n.id==="pay_mm"){setFm({_mm:true});setMdl("mm");}else setPage(n.id);}} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:1,background:"none",border:"none",cursor:"pointer",padding:"5px 1px",minWidth:0,flex:1,transition:"opacity .15s",overflow:"hidden"}}>
@@ -7504,7 +7510,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
         </div>
       </Modal>
 
-      {/* ── UPGRADE WALL — affiché quand une limite Free précise est atteinte ── */}
+      {/* ── UPGRADE WALL, affiché quand une limite Free précise est atteinte ── */}
       {showUpgradeWall&&(
         <div onClick={()=>setShowUpgradeWall(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:980,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(18px)",padding:"16px"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:`linear-gradient(160deg,${T.c1},${T.c2})`,border:`2px solid ${T.gr}55`,borderRadius:28,padding:"2rem 1.8rem",width:"100%",maxWidth:420,textAlign:"center",boxShadow:`0 40px 120px rgba(0,0,0,.95)`,animation:"pop .3s cubic-bezier(.34,1.56,.64,1)"}}>
@@ -7564,10 +7570,10 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
         <div style={{background:`${T.gr}08`,border:`1px solid ${T.gr}18`,borderRadius:9,padding:"9px 12px",marginBottom:13,fontSize:11,color:T.sub2}}>
           🔐 En production : API serverless <code>/api/create-payment.js</code> + webhook de confirmation
         </div>
-        <Btn full ch={`${t("initPayment")} — ${fm.inv?fmtPrice(fm.inv.total, fm.inv.currency||DEFAULT_CURRENCY):""}`} onClick={doPay}/>
+        <Btn full ch={`${t("initPayment")}, ${fm.inv?fmtPrice(fm.inv.total, fm.inv.currency||DEFAULT_CURRENCY):""}`} onClick={doPay}/>
       </Modal>
 
-      {/* Mobile Money — Accès direct depuis nav bas */}
+      {/* Mobile Money, Accès direct depuis nav bas */}
       <Modal open={mdl==="mm"} onClose={()=>{setMdl(null);setFm({});}} title={t("mmTitle")}>
         <div style={{marginBottom:10}}>
           <div style={{fontSize:13,color:T.sub,marginBottom:14,textAlign:"center"}}>{t("sendReceive")}</div>
@@ -7586,7 +7592,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
           <div style={{background:`${T.gr}08`,border:`1px solid ${T.gr}20`,borderRadius:9,padding:"10px 13px",marginBottom:13,fontSize:11,color:T.sub2,lineHeight:1.5}}>
             🔐 {t("mmConnected").split("\n")[0]}<br/>{t("mmConnected").split("\n")[1]}
           </div>
-          <Btn full ch={fm.prov?`💳 ${fm.prov.toUpperCase()}${fm.amount?" — "+fmtPrice(parseFloat(fm.amount)||0, DEFAULT_CURRENCY):""}` : t("chooseOperator")} onClick={async()=>{
+          <Btn full ch={fm.prov?`💳 ${fm.prov.toUpperCase()}${fm.amount?", "+fmtPrice(parseFloat(fm.amount)||0, DEFAULT_CURRENCY):""}` : t("chooseOperator")} onClick={async()=>{
             if(!fm.prov){toast("⚠️ "+t("chooseOperator").replace("💳 ",""),"err");return;}
             if(!fm.phone){toast("⚠️ "+t("mmPhone"),"err");return;}
             if(!fm.amount||parseFloat(fm.amount)<=0){toast("⚠️ "+t("mmAmount"),"err");return;}
@@ -7600,7 +7606,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
                   amount:parseFloat(fm.amount),
                   email:ses.email,
                   description:fm.note||"Paiement Mobile Money VierAfrik",
-                  custom_id:"mm_"+fm.prov+"_"+Date.now().toString(36), // identifiant interne — pas "plan"
+                  custom_id:"mm_"+fm.prov+"_"+Date.now().toString(36), // identifiant interne, pas "plan"
                   uid:ses.id,
                   phone:fm.phone,
                 })
@@ -7615,7 +7621,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
                 setTimeout(()=>window.location.href=url,800);
               } else {
                 console.error("❌ [FedaPay] Réponse inattendue:", data);
-                toast("❌ "+(data?.message||data?.error||"Erreur — réessayez"),"err");
+                toast("❌ "+(data?.message||data?.error||"Erreur, réessayez"),"err");
               }
             }catch(e){
               console.error("❌ [FedaPay] Exception réseau:", e);

@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════════════════════════
-//  📚 Coach VierAfrik — catégories et leçons
+//  📚 Coach VierAfrik, catégories et leçons
 // ──────────────────────────────────────────────────────────────
-//  Toutes les leçons sont actuellement type:"text" — aucune ne
+//  Toutes les leçons sont actuellement type:"text", aucune ne
 //  prétend être une vidéo tant qu'aucune URL réelle n'existe.
 //  Le jour où une vraie vidéo est disponible, passer son type à
 //  "video" et renseigner `url` : le composant s'adapte seul.
@@ -39,7 +39,7 @@ export const COACH_LESSONS = [
   {
     id:"app", type:"text", category:"finances", icon:"🧾",
     label:"Suivre clients et factures",
-    script:"Ajoute tes clients, crée tes factures,\net gère ton argent facilement ici.\nRelance tes factures en retard régulièrement — c'est souvent là que se cache l'argent qui te manque.",
+    script:"Ajoute tes clients, crée tes factures,\net gère ton argent facilement ici.\nRelance tes factures en retard régulièrement, c'est souvent là que se cache l'argent qui te manque.",
     action:{ label:"👥 Mes clients", page:"cli" },
   },
   {
@@ -58,12 +58,12 @@ export const COACH_LESSONS = [
   {
     id:"pro", type:"text", category:"croissance", icon:"⭐",
     label:"Devenir Pro",
-    script:"Passe en mode Pro pour être plus visible\net gagner encore plus de clients.\nEmployés, Coach IA illimité, mise en avant dans le Réseau — tout est débloqué.",
+    script:"Passe en mode Pro pour être plus visible\net gagner encore plus de clients.\nEmployés, Coach IA illimité, mise en avant dans le Réseau, tout est débloqué.",
     action:{ label:"💎 Voir les plans", page:"plans" },
   },
 ];
 
-// ── Recommandation contextuelle — dérivée des données réelles de l'utilisateur ──
+// ── Recommandation contextuelle, dérivée des données réelles de l'utilisateur ──
 export function getRecommendedLessonId({ profit=0, overdueCount=0, activeClientsCount=0, sales=0 } = {}) {
   if (profit <= 0 && sales > 0) return "margins";
   if (overdueCount > 0) return "app";

@@ -2,17 +2,17 @@ import { useState, useEffect } from "react";
 import { COUNTRIES, getCitiesForCountry, OTHER_CITY } from "../data/locations.js";
 
 // ══════════════════════════════════════════════════════════════
-//  📍 LocationPicker — sélecteur pays → ville réutilisable
+//  📍 LocationPicker, sélecteur pays → ville réutilisable
 //  Parcours : 1) choisir le pays  2) choisir la ville
 //             3) si absente : "Autre ville / village" → texte libre
 // ──────────────────────────────────────────────────────────────
 //  Props:
-//    countryCode  — code ISO courant ("CI") ou "" si non défini
-//    city         — nom de ville courant (texte brut)
-//    onChange     — ({countryCode, city}) => void
-//    theme        — objet couleurs (c3, border, text, sub, sub2) — optionnel
-//    labels       — {country, city, other} — optionnel (i18n)
-//    required     — bool, ajoute une option vide "Sélectionner…"
+//    countryCode , code ISO courant ("CI") ou "" si non défini
+//    city        , nom de ville courant (texte brut)
+//    onChange    , ({countryCode, city}) => void
+//    theme       , objet couleurs (c3, border, text, sub, sub2), optionnel
+//    labels      , {country, city, other}, optionnel (i18n)
+//    required    , bool, ajoute une option vide "Sélectionner…"
 // ══════════════════════════════════════════════════════════════
 export default function LocationPicker({
   countryCode = "",
@@ -32,7 +32,7 @@ export default function LocationPicker({
   // Si le pays change et que la ville active n'existe plus dans la nouvelle liste, on réinitialise.
   useEffect(() => {
     if (city && !cities.includes(city) && city !== "" && !showOther) {
-      // ville héritée d'un autre pays — on laisse l'utilisateur re-choisir
+      // ville héritée d'un autre pays, on laisse l'utilisateur re-choisir
     }
   }, [countryCode]); // eslint-disable-line react-hooks/exhaustive-deps
 

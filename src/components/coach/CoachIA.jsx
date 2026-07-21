@@ -15,8 +15,8 @@ const loadViewed = (uid) => { try { return new Set(JSON.parse(localStorage.getIt
 const saveViewed = (uid, set) => { try { localStorage.setItem(viewedKey(uid), JSON.stringify([...set])); } catch(e) {} };
 
 // ══════════════════════════════════════════════════════════════
-//  🎥 Coach VierAfrik — leçons catégorisées + Coach IA (chat)
-//  (refonte — remplace l'ancien système "vidéo" qui n'affichait
+//  🎥 Coach VierAfrik, leçons catégorisées + Coach IA (chat)
+//  (refonte, remplace l'ancien système "vidéo" qui n'affichait
 //  jamais de vraie vidéo)
 // ══════════════════════════════════════════════════════════════
 export default function CoachIA({ ses, accent, clis, invs, sales, exps, profit, gPct, goal, setPage, plan="free" }) {
@@ -49,7 +49,7 @@ export default function CoachIA({ ses, accent, clis, invs, sales, exps, profit, 
   const backToMenu = () => setView({ mode:"menu", lesson:null });
   const goAction = (lesson) => { if (lesson.action?.page) setPage(lesson.action.page); };
 
-  // ── handleSend — appel sécurisé vers /api/coach ──
+  // ── handleSend, appel sécurisé vers /api/coach ──
   const handleSend = useCallback(async () => {
     if (!localMsg.trim() || localCLoad) return;
     const msg = localMsg.trim();
@@ -200,7 +200,7 @@ export default function CoachIA({ ses, accent, clis, invs, sales, exps, profit, 
         );
       })}
 
-      {/* ── Coach IA — conversation ── */}
+      {/* ── Coach IA, conversation ── */}
       <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14, marginTop:24 }}>
         <div style={{ flex:1, height:1, background:T.border }}/>
         <div style={{ fontSize:11, color:T.sub, fontWeight:600 }}>🤖 Discussion avec le Coach IA</div>

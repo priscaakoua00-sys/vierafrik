@@ -1,5 +1,5 @@
 // ══════════════════════════════════════════════════════════════
-//  📌 MyStoriesBar — bandeau "Vos stories" (Forum 24h)
+//  📌 MyStoriesBar, bandeau "Vos stories" (Forum 24h)
 //  Toujours visible en premier, indépendamment du filtre de
 //  catégorie actif, pour que l'auteur retrouve toujours ses propres
 //  publications même si elles ne correspondent pas au filtre choisi.

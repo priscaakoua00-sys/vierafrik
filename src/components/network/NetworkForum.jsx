@@ -7,10 +7,10 @@ import StoryDetailModal, { MAX_MSG_LEN } from "./StoryDetailModal.jsx";
 import { deleteNetworkMedia } from "../../utils/networkMedia.js";
 
 // ══════════════════════════════════════════════════════════════
-//  🤝  Forum annonces — messages courts, expirent après 24h
+//  🤝  Forum annonces, messages courts, expirent après 24h
 //  (anciennement ReseauCommerçants, extrait + refonte desktop)
 //
-//  IMPORTANT — Composer/CategoryFilter/MessagesList/MessageCard sont des
+//  IMPORTANT, Composer/CategoryFilter/MessagesList/MessageCard sont des
 //  composants top-level (pas définis dans le corps de NetworkForum) :
 //  sinon chaque frappe clavier (setNewMsg) redéclenche un render de
 //  NetworkForum, qui recréerait ces fonctions à chaque fois → React les
@@ -231,14 +231,14 @@ export default function NetworkForum({ user, supabase, accent = "#00d478", toast
       setMsgs(p => [saved, ...p]);
       setNewMsg("");
       setCat("all");
-      // Réinitialiser le filtre — sinon un message publié dans une catégorie
+      // Réinitialiser le filtre, sinon un message publié dans une catégorie
       // différente du filtre actif reste invisible pour son propre auteur,
       // même si tout le monde d'autre le voit (c'est ce qui donnait
       // l'impression que la publication avait disparu).
       setFiltreId("all");
       setJustPublished(saved);
     } catch (e) {
-      toast?.("❌ Erreur envoi — vérifiez votre connexion", "err");
+      toast?.("❌ Erreur envoi, vérifiez votre connexion", "err");
     } finally {
       setSending(false);
     }
@@ -253,7 +253,7 @@ export default function NetworkForum({ user, supabase, accent = "#00d478", toast
       const { error } = await s.from("reseau_messages").delete().eq("id", id).eq("user_id", user?.id);
       if (error) throw error;
       setMsgs(p => p.filter(m => m.id !== id));
-      // Nettoyage immédiat du média associé — pas besoin d'attendre le
+      // Nettoyage immédiat du média associé, pas besoin d'attendre le
       // passage automatique côté serveur pour une suppression volontaire.
       if (target?.image_url) deleteNetworkMedia(s, target.image_url);
       if (target?.video_url) deleteNetworkMedia(s, target.video_url);
@@ -275,7 +275,7 @@ export default function NetworkForum({ user, supabase, accent = "#00d478", toast
       toast?.("✅ Story modifiée !", "ok");
       return true;
     } catch (e) {
-      toast?.("❌ Modification échouée — réessaie", "err");
+      toast?.("❌ Modification échouée, réessaie", "err");
       return false;
     }
   };
@@ -313,7 +313,7 @@ export default function NetworkForum({ user, supabase, accent = "#00d478", toast
       {/* ── Confirmation post-publication ── */}
       {justPublished && (
         <div style={{ background:`linear-gradient(135deg,${accent}20,${T.c1})`, border:`1px solid ${accent}55`, borderRadius:14, padding:"12px 16px", marginBottom:16, display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap" }}>
-          <span style={{ fontSize:12.5, fontWeight:700, color:accent }}>✅ Story publiée — visible par tous les commerçants VierAfrik !</span>
+          <span style={{ fontSize:12.5, fontWeight:700, color:accent }}>✅ Story publiée, visible par tous les commerçants VierAfrik !</span>
           <div style={{ display:"flex", gap:8 }}>
             <button onClick={() => { setSelectedMsg(justPublished); setJustPublished(null); }} style={{ padding:"7px 14px", borderRadius:9, border:"none", background:accent, color:T.ink, cursor:"pointer", fontFamily:"inherit", fontWeight:800, fontSize:11 }}>
               👁️ Voir ma story
@@ -325,7 +325,7 @@ export default function NetworkForum({ user, supabase, accent = "#00d478", toast
         </div>
       )}
 
-      {/* ── Vos stories — toujours en premier, jamais masqué par le filtre ── */}
+      {/* ── Vos stories, toujours en premier, jamais masqué par le filtre ── */}
       <MyStoriesBar myMsgs={myMsgs} accent={accent} T={T} timeLeft={timeLeft} onOpen={setSelectedMsg}/>
 
       {isDesktop ? (

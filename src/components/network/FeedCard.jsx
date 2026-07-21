@@ -2,7 +2,7 @@ import { useState } from "react";
 import { FEED_CATEGORY_IMAGES } from "../../data/networkCategories.js";
 
 // ══════════════════════════════════════════════════════════════
-//  FeedCard — carte profil du Réseau visuel
+//  FeedCard, carte profil du Réseau visuel
 //  Défini hors de NetworkFeed pour éviter le re-mount React.
 //  Dimensionnement en aspect-ratio (pas de hauteur fixe) pour
 //  rester propre dans une grille 1, 2 ou 3 colonnes.
@@ -98,7 +98,7 @@ export default function FeedCard({
             background:`${Tc.gold}10`, color:Tc.gold, cursor:"pointer", fontFamily:"inherit",
             fontWeight:700, fontSize:12,
           }}>
-            ✨ Profil d'exemple — rejoins le réseau pour être visible
+            ✨ Profil d'exemple, rejoins le réseau pour être visible
           </button>
         ) : (
           <>

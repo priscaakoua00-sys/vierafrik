@@ -1,7 +1,7 @@
 import { estimateReadingTime } from "../../data/coachLessons.js";
 
 // ══════════════════════════════════════════════════════════════
-//  LessonCard — vignette animée (CSS pur, aucune image externe)
+//  LessonCard, vignette animée (CSS pur, aucune image externe)
 // ══════════════════════════════════════════════════════════════
 export default function LessonCard({ lesson, big, viewed, isLocked, recommended, col, T, onOpen }) {
   const readMin = estimateReadingTime(lesson.script);
@@ -24,7 +24,7 @@ export default function LessonCard({ lesson, big, viewed, isLocked, recommended,
         <div style={{ fontSize: big ? 46 : 36, animation:"coachFloat 3.2s ease-in-out infinite", filter:`drop-shadow(0 4px 18px ${col}55)` }}>
           {lesson.icon}
         </div>
-        {/* Badge type — jamais "vidéo" si ce n'est pas une vraie vidéo */}
+        {/* Badge type, jamais "vidéo" si ce n'est pas une vraie vidéo */}
         <div style={{ position:"absolute", top:10, left:10, background:"rgba(0,0,0,.62)", backdropFilter:"blur(6px)", borderRadius:20, padding:"3px 9px", fontSize:9.5, fontWeight:700, color:"#fff", display:"flex", alignItems:"center", gap:4 }}>
           {lesson.type === "video" ? "🎥 Vidéo" : "💬 Texte"}
         </div>

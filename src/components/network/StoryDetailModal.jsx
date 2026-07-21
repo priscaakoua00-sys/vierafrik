@@ -7,7 +7,7 @@ import { uploadNetworkMedia, videoExtFromBlob, deleteNetworkMedia } from "../../
 export const MAX_MSG_LEN = 500;
 
 // ══════════════════════════════════════════════════════════════
-//  StoryDetailModal — vue détail d'une story du Forum 24h.
+//  StoryDetailModal, vue détail d'une story du Forum 24h.
 //  Lecture seule pour les autres utilisateurs (appeler/WhatsApp).
 //  Pour l'auteur : voir exactement comme les autres la voient,
 //  modifier le texte/catégorie, remplacer le média, supprimer.
@@ -52,7 +52,7 @@ export default function StoryDetailModal({
           updates.video_url = url; updates.image_url = null; updates.thumbnail_url = thumbUrl;
           updates.media_type = "video"; updates.duration_seconds = pendingMedia.durationSec;
         }
-        // Nettoyage immédiat de l'ancien média — ne pas attendre le passage
+        // Nettoyage immédiat de l'ancien média, ne pas attendre le passage
         // automatique de l'étape 1 (qui ne traite que les stories expirées).
         if (msg.image_url) await deleteNetworkMedia(s, msg.image_url);
         if (msg.video_url) await deleteNetworkMedia(s, msg.video_url);
@@ -65,7 +65,7 @@ export default function StoryDetailModal({
         setPendingMedia(null);
       }
     } catch(e) {
-      toast?.("❌ Envoi du média échoué — réessaie", "err");
+      toast?.("❌ Envoi du média échoué, réessaie", "err");
     } finally {
       setSaving(false);
     }
@@ -114,12 +114,12 @@ export default function StoryDetailModal({
         {isOwn && (
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12, padding:"8px 12px", borderRadius:10, background: expired?"rgba(255,34,85,.1)":"rgba(0,212,120,.08)", border:`1px solid ${expired?"rgba(255,34,85,.3)":accent+"33"}` }}>
             <span style={{ fontSize:11, fontWeight:700, color: expired?"#ff2255":accent }}>
-              {expired ? "🔴 Expirée" : `🟢 Active — ${timeLeft(msg.created_at)}`}
+              {expired ? "🔴 Expirée" : `🟢 Active, ${timeLeft(msg.created_at)}`}
             </span>
           </div>
         )}
 
-        {/* ── Média (photo/vidéo) — si présent ── */}
+        {/* ── Média (photo/vidéo), si présent ── */}
         {!editing && hasMedia && (
           <div style={{ borderRadius:14, overflow:"hidden", marginBottom:14, background:"#000" }}>
             {msg.media_type === "video" && msg.video_url ? (
@@ -169,7 +169,7 @@ export default function StoryDetailModal({
             )}
             {pendingMedia && (
               <div style={{ marginTop:8, fontSize:11, color:accent, fontWeight:700 }}>
-                ✅ Nouveau {pendingMedia.type === "video" ? "vidéo" : "photo"} prêt — sera envoyé à l'enregistrement.
+                ✅ Nouveau {pendingMedia.type === "video" ? "vidéo" : "photo"} prêt, sera envoyé à l'enregistrement.
               </div>
             )}
 
@@ -209,7 +209,7 @@ export default function StoryDetailModal({
                   </>
                 ) : (
                   <div style={{ background:"rgba(240,176,32,.08)", border:"1px solid rgba(240,176,32,.22)", borderRadius:12, padding:"12px 14px", fontSize:12, color:"#f0b020", textAlign:"center", lineHeight:1.6 }}>
-                    ℹ️ Numéro non renseigné — ce commerçant n'a pas ajouté son téléphone à son profil.
+                    ℹ️ Numéro non renseigné, ce commerçant n'a pas ajouté son téléphone à son profil.
                   </div>
                 )}
                 <button onClick={onClose} style={{ width:"100%", padding:"11px", borderRadius:12, border:"1px solid rgba(255,255,255,.1)", background:"transparent", color:"#4a7090", fontFamily:"inherit", fontWeight:600, fontSize:13, cursor:"pointer" }}>Fermer</button>

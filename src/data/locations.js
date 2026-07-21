@@ -1,5 +1,5 @@
 // ══════════════════════════════════════════════════════════════
-//  📍 LOCATION DATA — source unique pays/villes pour toute l'app
+//  📍 LOCATION DATA, source unique pays/villes pour toute l'app
 // ──────────────────────────────────────────────────────────────
 //  Règle de stockage : on stocke TOUJOURS le code ISO du pays
 //  (ex: "CI") et le nom de ville en texte brut (ex: "Abidjan").
@@ -7,7 +7,7 @@
 //  jamais stockés en base.
 //
 //  Pour ajouter un pays ou une ville : ajouter une entrée dans
-//  COUNTRIES ci-dessous. Aucune autre modification nécessaire —
+//  COUNTRIES ci-dessous. Aucune autre modification nécessaire :
 //  tous les sélecteurs (LocationPicker, filtres réseau, etc.)
 //  lisent cette liste dynamiquement.
 // ══════════════════════════════════════════════════════════════
@@ -70,7 +70,7 @@ export const COUNTRIES = [
   { code:"UG", flag:"🇺🇬", name:"Ouganda",                     cities:["Kampala","Gulu","Mbarara"] },
   { code:"ZM", flag:"🇿🇲", name:"Zambie",                     cities:["Lusaka","Ndola","Kitwe"] },
   { code:"ZW", flag:"🇿🇼", name:"Zimbabwe",                    cities:["Harare","Bulawayo","Mutare"] },
-  // ── Reste du monde (échantillon — architecture extensible) ──
+  // ── Reste du monde (échantillon, architecture extensible) ──
   { code:"NL", flag:"🇳🇱", name:"Pays-Bas",                    cities:["Amsterdam","Rotterdam","Utrecht","Eindhoven","Breda","Roosendaal"] },
   { code:"FR", flag:"🇫🇷", name:"France",                     cities:["Paris","Marseille","Lyon","Toulouse","Lille"] },
   { code:"BE", flag:"🇧🇪", name:"Belgique",                    cities:["Bruxelles","Anvers","Liège"] },

@@ -4,7 +4,7 @@ import NetworkForum from "./NetworkForum.jsx";
 import { useViewport } from "../../hooks/useMediaQuery.js";
 
 // ══════════════════════════════════════════════════════════════
-//  Réseau — page conteneur : en-tête + onglets Feed/Forum
+//  Réseau, page conteneur : en-tête + onglets Feed/Forum
 //  (anciennement PgCommProches, extrait pour cohérence desktop)
 // ══════════════════════════════════════════════════════════════
 export default function NetworkShell({ ses, accent, toast, getSupa, plan, onAddClient, onCreateInvoice, onPayment }) {
@@ -21,7 +21,7 @@ export default function NetworkShell({ ses, accent, toast, getSupa, plan, onAddC
 
   return (
     <div>
-      {/* ── EN-TÊTE — compact, jamais démesuré même en grand écran ── */}
+      {/* ── EN-TÊTE, compact, jamais démesuré même en grand écran ── */}
       <div style={{ display:"flex", alignItems: isDesktop ? "flex-end" : "center", justifyContent:"space-between", flexWrap:"wrap", gap:12, marginBottom:18 }}>
         <div style={{ textAlign: isDesktop ? "left" : "center", width: isDesktop ? "auto" : "100%" }}>
           <div style={{ fontWeight:900, fontSize: isDesktop ? 22 : 22, letterSpacing:"-.03em" }}>

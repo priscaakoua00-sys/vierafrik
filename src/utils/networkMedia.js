@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════════════════════════
 //  Upload d'un média (photo/vidéo/miniature) déjà compressé vers le
 //  bucket Supabase Storage "network-media" (voir migration Étape 1).
-//  Ne fait aucune compression — le blob doit déjà être prêt à l'emploi
+//  Ne fait aucune compression, le blob doit déjà être prêt à l'emploi
 //  (CameraCapture s'en charge à la capture).
 // ══════════════════════════════════════════════════════════════
 export async function uploadNetworkMedia(supabaseClient, userId, blob, { folder = "", ext = "jpg", contentType } = {}) {
@@ -25,7 +25,7 @@ export function videoExtFromBlob(blob) {
 
 // Supprime un fichier du bucket "network-media" à partir de son URL publique
 // (utilisé quand on remplace ou supprime un média AVANT son expiration
-// naturelle — le nettoyage automatique à 24h est géré séparément côté
+// naturelle, le nettoyage automatique à 24h est géré séparément côté
 // serveur, ceci couvre les actions immédiates de l'utilisateur).
 export async function deleteNetworkMedia(supabaseClient, publicUrl) {
   if (!publicUrl) return;

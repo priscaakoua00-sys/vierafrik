@@ -1,4 +1,4 @@
-// Catégories du "Réseau visuel" (profils commerçants — table commercants_profils)
+// Catégories du "Réseau visuel" (profils commerçants, table commercants_profils)
 export const FEED_CATEGORIES = [
   { id:"",           label:"Tous",          emoji:"🌍" },
   { id:"services",   label:"Services",      emoji:"🧹" },
@@ -11,7 +11,7 @@ export const FEED_CATEGORIES = [
   { id:"business",   label:"Business",      emoji:"💼" },
 ];
 
-// Images de fallback par catégorie (Unsplash) — utilisées quand un profil n'a pas de photo
+// Images de fallback par catégorie (Unsplash), utilisées quand un profil n'a pas de photo
 export const FEED_CATEGORY_IMAGES = {
   services:   "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=600&q=75",
   resto:      "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&q=75",
@@ -24,7 +24,7 @@ export const FEED_CATEGORY_IMAGES = {
   default:    "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=600&q=75",
 };
 
-// Catégories du "Forum annonces" (messages courts 24h — table reseau_messages)
+// Catégories du "Forum annonces" (messages courts 24h, table reseau_messages)
 export const FORUM_CATEGORIES = [
   { id:"all",     label:"Tous",    ic:"💬" },
   { id:"travail", label:"Travail", ic:"👷" },

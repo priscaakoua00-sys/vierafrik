@@ -1,5 +1,5 @@
 // ══════════════════════════════════════════════════════════════
-//  ✨ Contenu de démonstration — Réseau visuel
+//  ✨ Contenu de démonstration, Réseau visuel
 // ──────────────────────────────────────────────────────────────
 //  Ces profils ne sont JAMAIS écrits en base de données : ils sont
 //  injectés côté client uniquement, dans NetworkFeed, pour que le

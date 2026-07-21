@@ -1,24 +1,24 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 // ══════════════════════════════════════════════════════════════
-//  📸 CameraCapture — composant caméra réutilisable (photo + vidéo courte)
+//  📸 CameraCapture, composant caméra réutilisable (photo + vidéo courte)
 // ──────────────────────────────────────────────────────────────
-//  Ne fait AUCUN upload — il renvoie juste un blob prêt à l'emploi via
+//  Ne fait AUCUN upload, il renvoie juste un blob prêt à l'emploi via
 //  onDone({ type:"photo"|"video", blob, previewUrl, thumbnailBlob,
 //  durationSec, width, height }). C'est à l'appelant (étape 3 : profil
 //  Réseau, annonces, stories) de décider où l'envoyer.
 //
 //  Règles respectées :
 //  - Permission caméra/micro demandée UNIQUEMENT quand l'utilisateur
-//    choisit explicitement "Prendre une photo" ou "Filmer" — jamais
+//    choisit explicitement "Prendre une photo" ou "Filmer", jamais
 //    au montage du composant.
 //  - Vidéo : durée maximale affichée AVANT le début de l'enregistrement,
 //    arrêt automatique à la limite, compression appliquée dès la
 //    capture (résolution + débit limités au niveau de MediaRecorder,
-//    pas de ré-encodage a posteriori — trop lourd pour un téléphone
+//    pas de ré-encodage a posteriori, trop lourd pour un téléphone
 //    d'entrée de gamme).
 //  - Fichier vidéo importé depuis la galerie : validé (durée, poids),
-//    jamais recompressé — voir le plan Étape 1/2.
+//    jamais recompressé, voir le plan Étape 1/2.
 //  - Toutes les pistes caméra/micro sont coupées (`track.stop()`) dès
 //    qu'on quitte l'aperçu live, la relecture ou le composant.
 // ══════════════════════════════════════════════════════════════
@@ -44,7 +44,7 @@ function pickSupportedMimeType() {
   return null;
 }
 
-// Compresse une image (fichier ou frame vidéo) en JPEG — même logique
+// Compresse une image (fichier ou frame vidéo) en JPEG, même logique
 // que l'upload photo de profil (max 800px, qualité 0.72).
 function compressImageBlob(sourceCanvas) {
   return new Promise((resolve) => {
@@ -114,7 +114,7 @@ export default function CameraCapture({
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       setPhase("live");
-      // Le <video> n'existe qu'après le changement de phase — on attache
+      // Le <video> n'existe qu'après le changement de phase, on attache
       // le flux au prochain tick une fois le DOM rendu.
       setTimeout(() => {
         if (videoRef.current) {
@@ -149,7 +149,7 @@ export default function CameraCapture({
 
   const startRecording = () => {
     const mimeType = pickSupportedMimeType();
-    if (!mimeType || !streamRef.current) { setError("Vidéo non disponible sur cet appareil — utilise une photo."); setPhase("error"); return; }
+    if (!mimeType || !streamRef.current) { setError("Vidéo non disponible sur cet appareil, utilise une photo."); setPhase("error"); return; }
     chunksRef.current = [];
     const recorder = new MediaRecorder(streamRef.current, { mimeType, videoBitsPerSecond: 900_000 });
     recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunksRef.current.push(e.data); };
@@ -215,7 +215,7 @@ export default function CameraCapture({
         setResult({ type: "photo", blob, previewUrl: URL.createObjectURL(blob), thumbnailBlob: null, durationSec: 0, width: canvas.width, height: canvas.height });
         setPhase("review");
       } else if (f.type.startsWith("video/")) {
-        const MAX_MB = 25; // poids brut avant sélection — la validation de durée est déterminante
+        const MAX_MB = 25; // poids brut avant sélection, la validation de durée est déterminante
         if (f.size > MAX_MB * 1024 * 1024) {
           setError(`Vidéo trop lourde (max ${MAX_MB}Mo). Filme directement dans l'app pour une vidéo déjà optimisée.`);
           setPhase("error"); return;
@@ -224,19 +224,19 @@ export default function CameraCapture({
         const duration = await getVideoDuration(tmpUrl).catch(() => null);
         if (duration == null) {
           URL.revokeObjectURL(tmpUrl);
-          setError("Vidéo illisible — essaie un autre fichier ou filme directement dans l'app.");
+          setError("Vidéo illisible, essaie un autre fichier ou filme directement dans l'app.");
           setPhase("error"); return;
         }
         if (duration > maxVideoSec + 1) {
           URL.revokeObjectURL(tmpUrl);
-          setError(`Cette vidéo dure ${Math.round(duration)}s — maximum autorisé : ${maxVideoSec}s. Filme directement dans l'app pour rester dans la limite.`);
+          setError(`Cette vidéo dure ${Math.round(duration)}s, maximum autorisé : ${maxVideoSec}s. Filme directement dans l'app pour rester dans la limite.`);
           setPhase("error"); return;
         }
         const thumbnailBlob = await generateVideoThumbnail(tmpUrl).catch(() => null);
         setResult({ type: "video", blob: f, previewUrl: tmpUrl, thumbnailBlob, durationSec: Math.round(duration), width: 0, height: 0 });
         setPhase("review");
       } else {
-        setError("Fichier non pris en charge — choisis une image ou une vidéo.");
+        setError("Fichier non pris en charge, choisis une image ou une vidéo.");
         setPhase("error");
       }
     } finally { setBusy(false); }
@@ -376,7 +376,7 @@ function getVideoDuration(url) {
   });
 }
 
-// Génère une miniature JPEG depuis la 1ère frame utile d'une vidéo —
+// Génère une miniature JPEG depuis la 1ère frame utile d'une vidéo,
 // aucun traitement serveur nécessaire.
 function generateVideoThumbnail(videoUrl) {
   return new Promise((resolve, reject) => {

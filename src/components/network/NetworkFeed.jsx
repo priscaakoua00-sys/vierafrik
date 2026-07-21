@@ -10,12 +10,12 @@ import { DEMO_NETWORK_POSTS, DEMO_VISIBLE_THRESHOLD } from "../../data/demoNetwo
 import { uploadNetworkMedia } from "../../utils/networkMedia.js";
 
 // ══════════════════════════════════════════════════════════════
-//  🗺️  Réseau visuel — feed de profils commerçants
+//  🗺️  Réseau visuel, feed de profils commerçants
 //  (anciennement CommerçantsProches, extrait + refonte desktop)
 //  "Je vois → je choisis → je contacte"
 // ══════════════════════════════════════════════════════════════
 
-// ── Carte "Mon profil" — compacte, vit dans la sidebar en desktop ──
+// ── Carte "Mon profil", compacte, vit dans la sidebar en desktop ──
 // Top-level (pas défini dans le corps de NetworkFeed) : sinon chaque
 // changement d'état (filtre, note, etc.) redéclenche un render de
 // NetworkFeed qui recréerait cette fonction à chaque fois → React la
@@ -42,7 +42,7 @@ const ProfileCard = ({ accent, Tc, myProfile, userName, onEdit }) => (
   </div>
 );
 
-// ── Filtres (catégorie + pays + ville) ── — layout vertical (sidebar desktop) ou horizontal (mobile)
+// ── Filtres (catégorie + pays + ville) ──, layout vertical (sidebar desktop) ou horizontal (mobile)
 const FiltersPanel = ({ accent, Tc, IS2, isDesktop, filterCat, setFilterCat, filterPays, setFilterPays, filterVille, setFilterVille }) => (
   <div style={{ background:Tc.c1, border:`1px solid ${Tc.border}`, borderRadius:16, padding:"1.1rem" }}>
     <div style={{ fontSize:10.5, fontWeight:700, textTransform:"uppercase", letterSpacing:".06em", color:Tc.sub, marginBottom:10 }}>Filtrer</div>
@@ -182,8 +182,8 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
     finally { setSaving(false); }
   };
 
-  // ── Photo de profil — caméra intégrée (ou galerie) + envoi Storage ──
-  // CameraCapture fournit déjà un blob compressé (photo seule ici — un
+  // ── Photo de profil, caméra intégrée (ou galerie) + envoi Storage ──
+  // CameraCapture fournit déjà un blob compressé (photo seule ici, un
   // profil n'a pas besoin de vidéo) ; on l'envoie tel quel dans le bucket
   // "network-media" et on ne stocke que l'URL publique en base.
   const [showPhotoCapture, setShowPhotoCapture] = useState(false);
@@ -195,7 +195,7 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
       const url = await uploadNetworkMedia(s, user?.id, result.blob, { folder:"profile", ext:"jpg", contentType:"image/jpeg" });
       setPreviewImg(url);
     } catch(err) {
-      toast?.("❌ Envoi de la photo échoué — réessaie","err");
+      toast?.("❌ Envoi de la photo échoué, réessaie","err");
     } finally {
       setUploadingImg(false);
     }
@@ -210,7 +210,7 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
   // ── Actions contact ──
   const doCall = (phone) => { if (!phone) { toast?.("📞 Numéro non disponible","warn"); return; } window.open(`tel:${(phone||"").replace(/\D/g,"")}`, "_blank"); };
   const doWA   = (p, name, act) => { const ph=(p||"").replace(/\D/g,""); if (!ph) { toast?.("💬 Numéro non disponible","warn"); return; } window.open(`https://wa.me/${ph}?text=${encodeURIComponent(`Bonjour ${name||""} 👋 Je vous ai trouvé sur VierAfrik pour ${act||"votre activité"}. Êtes-vous disponible ?`)}`, "_blank"); };
-  const demoBlocked = () => toast?.("✨ Ceci est un exemple pour t'inspirer — rejoins le réseau pour être visible et contacté !","ok",Tc.gold);
+  const demoBlocked = () => toast?.("✨ Ceci est un exemple pour t'inspirer, rejoins le réseau pour être visible et contacté !","ok",Tc.gold);
 
   const IS2 = { width:"100%", padding:"10px 14px", background:Tc.c3, border:`1px solid ${Tc.border}`, borderRadius:11, color:Tc.text, fontFamily:"inherit", fontSize:13, outline:"none", marginTop:4 };
 
@@ -239,7 +239,7 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
         </div>
       )}
 
-      {/* ── ÉDITION PROFIL — dialogue centré (desktop) / bottom-sheet (mobile) ── */}
+      {/* ── ÉDITION PROFIL, dialogue centré (desktop) / bottom-sheet (mobile) ── */}
       {editOpen && (
         <div onClick={()=>setEditOpen(false)} style={{
           position:"fixed", inset:0, background:"rgba(0,0,0,.82)", zIndex:950,

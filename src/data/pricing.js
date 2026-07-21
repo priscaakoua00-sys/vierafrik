@@ -1,8 +1,8 @@
 // ══════════════════════════════════════════════════════════════
-//  💎 Configuration des plans — Free / Pro / Business
+//  💎 Configuration des plans, Free / Pro / Business
 // ──────────────────────────────────────────────────────────────
 //  Business n'est plus une simple copie de Pro : au-delà des
-//  limites, il ajoute des avantages concrets — équipe illimitée
+//  limites, il ajoute des avantages concrets, équipe illimitée
 //  avec rôles, mise en avant + badge vérifié dans le Réseau,
 //  statistiques avancées, support prioritaire.
 // ══════════════════════════════════════════════════════════════

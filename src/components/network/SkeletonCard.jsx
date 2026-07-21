@@ -1,4 +1,4 @@
-// Skeleton de chargement — même silhouette qu'une FeedCard pour éviter
+// Skeleton de chargement, même silhouette qu'une FeedCard pour éviter
 // tout saut de mise en page quand les vraies données arrivent.
 export default function SkeletonCard({ Tc }) {
   const shimmer = { background:`linear-gradient(90deg,${Tc.c2} 25%,${Tc.c3} 50%,${Tc.c2} 75%)`, backgroundSize:"200% 100%", animation:"skeletonShimmer 1.4s ease infinite" };

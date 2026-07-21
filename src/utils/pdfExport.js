@@ -3,7 +3,7 @@ import html2canvas from "html2canvas";
 
 // ══════════════════════════════════════════════════════════════
 //  Génère un vrai fichier PDF téléchargeable à partir d'un fragment
-//  HTML (facture, reçu…) — remplace window.print()/CSS @media print,
+//  HTML (facture, reçu…), remplace window.print()/CSS @media print,
 //  dont le comportement est trop inconsistant sur les navigateurs
 //  mobiles (page blanche, ouverture d'un onglet séparé). Le rendu se
 //  fait hors-écran avec html2canvas, puis l'image est intégrée dans
