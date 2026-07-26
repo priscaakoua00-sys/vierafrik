@@ -2883,7 +2883,10 @@ function Dashboard({ses,logout,updSes}){
   //  downloadPdfFromHtml() rend le fragment hors-écran et télécharge un vrai
   //  fichier .pdf, sans dépendre du dialogue d'impression du navigateur. ──
   const doPrint=(html,filename)=>{
-    downloadPdfFromHtml(html, filename||"document.pdf").catch(()=>{
+    toast("⏳ Génération du PDF...");
+    downloadPdfFromHtml(html, filename||"document.pdf").then(()=>{
+      toast("✅ PDF téléchargé !","ok");
+    }).catch(()=>{
       toast("❌ Erreur génération PDF, réessayez.","err");
     });
   };
@@ -6113,7 +6116,12 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
       if (!cardRef.current) { toast("⚠️ Aperçu non disponible", "err"); return; }
       try {
         toast("⏳ Préparation du téléchargement...");
-        const canvas = await html2canvas(cardRef.current, { scale: 3, useCORS: true });
+        // Garde-fou : même risque de blocage que pour le logo si une
+        // ressource externe (police) est lente à charger.
+        const canvas = await Promise.race([
+          html2canvas(cardRef.current, { scale: 3, useCORS: true, imageTimeout: 8000 }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 12000)),
+        ]);
         const dataUrl = canvas.toDataURL("image/png");
         const link = document.createElement("a");
         link.download = `carte-visite-${(form.business || "vierafrik").toLowerCase().replace(/\s+/g,"-")}.png`;
@@ -6399,14 +6407,17 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       label: "Bouclier",
       render: () => (
         <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:8 }}>
-          <div data-shape="shield" style={{
-            width:100, height:110,
-            background: `linear-gradient(135deg,${couleur1},${couleur2})`,
-            clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)",
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontWeight:900, fontSize:32, color:"#fff",
-            boxShadow: `0 12px 40px ${couleur1}66`,
-          }}>
+          <div
+            data-shape={forme === "libre" ? "shield" : undefined}
+            style={{
+              width:100, height: forme === "libre" ? 110 : 100,
+              borderRadius: forme === "libre" ? 0 : radius(20),
+              background: `linear-gradient(135deg,${couleur1},${couleur2})`,
+              clipPath: forme === "libre" ? "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)" : "none",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              fontWeight:900, fontSize:32, color:"#fff",
+              boxShadow: `0 12px 40px ${couleur1}66`,
+            }}>
             {initials}
           </div>
           <div style={{ fontWeight:800,fontSize:13,color:T.text }}>{nom}</div>
@@ -6418,7 +6429,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       render: () => (
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
           <div style={{
-            width:70, height:70, borderRadius:16,
+            width:70, height:70, borderRadius: radius(16),
             background: `linear-gradient(135deg,${couleur1},${couleur2})`,
             display:"flex", alignItems:"center", justifyContent:"center",
             fontWeight:900, fontSize:26, color:"#fff",
@@ -6451,7 +6462,15 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
     try {
       toast?.("⏳ Préparation du logo...");
       const container = logoRef.current;
-      const canvas = await html2canvas(container, { scale: 3, backgroundColor: null, useCORS: true });
+      // imageTimeout borné + garde-fou Promise.race : sur une connexion lente
+      // ou instable, html2canvas peut rester bloqué en tentant de résoudre
+      // la police Google Fonts chargée en @import, sans jamais aboutir ni
+      // signaler d'erreur. On abandonne proprement plutôt que de laisser
+      // le bouton "Télécharger" bloqué indéfiniment sur "Préparation...".
+      const canvas = await Promise.race([
+        html2canvas(container, { scale: 3, backgroundColor: null, useCORS: true, imageTimeout: 8000 }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 12000)),
+      ]);
 
       // html2canvas ne sait pas reproduire le CSS clip-path, le style
       // "Bouclier" (hexagone) ressortait donc en simple rectangle au

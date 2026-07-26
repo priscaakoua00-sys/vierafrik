@@ -28,7 +28,15 @@ export async function downloadPdfFromHtml(html, filename) {
       setTimeout(res, 2000);
     })));
 
-    const canvas = await html2canvas(container, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+    // Garde-fou : sur une connexion lente ou instable, html2canvas peut
+    // rester bloqué en tentant de résoudre une ressource externe (police
+    // Google Fonts chargée en @import) sans jamais aboutir ni signaler
+    // d'erreur. On abandonne proprement plutôt que de bloquer le
+    // téléchargement de la facture indéfiniment.
+    const canvas = await Promise.race([
+      html2canvas(container, { scale: 2, backgroundColor: "#ffffff", useCORS: true, imageTimeout: 8000 }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 12000)),
+    ]);
     const imgData = canvas.toDataURL("image/jpeg", 0.95);
     const pdf = new jsPDF({ unit: "px", format: [canvas.width, canvas.height] });
     pdf.addImage(imgData, "JPEG", 0, 0, canvas.width, canvas.height);

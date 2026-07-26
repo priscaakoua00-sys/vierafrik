@@ -21,6 +21,13 @@ const COUNTRY_CURRENCY = {
 };
 const currencyForCountry = (code) => COUNTRY_CURRENCY[code] || "XOF";
 
+// XOF (Afrique de l'Ouest) et XAF (Afrique centrale) sont deux devises
+// distinctes mais alignées à parité fixe sur l'euro : tout le monde les
+// appelle "FCFA" au quotidien. Afficher "XOF"/"XAF" à l'écran est le code
+// ISO technique, pas le nom que les utilisateurs reconnaissent.
+const CURRENCY_LABELS = { XOF: "FCFA", XAF: "FCFA" };
+const displayCurrency = (code) => CURRENCY_LABELS[code] || code;
+
 const fmtAmount = (n) => new Intl.NumberFormat("fr-FR").format(Math.round(n || 0));
 
 function normalize(str) {
@@ -197,7 +204,7 @@ export default function PriceComparator({ user, accent = T.gr, toast, getSupa })
                         )}
                       </div>
                       <div style={{ fontWeight:800, fontSize:12.5, color:T.text, flexShrink:0 }}>
-                        {fmtAmount(e.price)} <span style={{ fontSize:9.5, color:T.sub, fontWeight:600 }}>{e.currency}</span>
+                        {fmtAmount(e.price)} <span style={{ fontSize:9.5, color:T.sub, fontWeight:600 }}>{displayCurrency(e.currency)}</span>
                       </div>
                     </div>
                   ))}
@@ -258,7 +265,7 @@ export default function PriceComparator({ user, accent = T.gr, toast, getSupa })
               </div>
             </div>
 
-            <label style={{ fontSize:10.5, fontWeight:700, color:T.sub, textTransform:"uppercase", letterSpacing:".05em" }}>Prix ({currencyForCountry(form.country)})</label>
+            <label style={{ fontSize:10.5, fontWeight:700, color:T.sub, textTransform:"uppercase", letterSpacing:".05em" }}>Prix ({displayCurrency(currencyForCountry(form.country))})</label>
             <input type="number" min="0" value={form.price} onChange={e=>setForm(p=>({...p, price:e.target.value}))} placeholder="0"
               style={{ width:"100%", background:T.c2, border:`1px solid ${T.border}`, borderRadius:10, padding:"10px 12px", color:T.text, fontSize:13, fontFamily:"inherit", margin:"6px 0 14px" }}/>
 
