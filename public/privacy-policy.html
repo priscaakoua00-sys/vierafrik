@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Politique de confidentialité — VierAfrik</title>
+<meta name="description" content="Politique de confidentialité de VierAfrik : quelles données sont collectées, comment elles sont protégées, et vos droits." />
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --ink:#05080E; --ink-2:#080F17; --surface:#0C1620;
+    --line:rgba(255,255,255,.08);
+    --green:#00D478; --green-br:#2BF39A; --gold:#E9B949;
+    --text:#EDF3EE; --muted:#93A6AE;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--ink);color:var(--text);font-family:'Inter',sans-serif;line-height:1.7;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:760px;margin:0 auto;padding:56px 22px 100px}
+  a{color:var(--green-br)}
+  h1,h2{font-family:'Sora',sans-serif;font-weight:700;letter-spacing:-.01em}
+  h1{font-size:clamp(1.7rem,4vw,2.3rem);margin-bottom:6px}
+  h2{font-size:1.15rem;margin:38px 0 12px;color:var(--green-br)}
+  p, li{color:var(--muted);font-size:.96rem}
+  .updated{font-family:'Inter',monospace;font-size:.82rem;color:var(--muted);margin-bottom:34px}
+  .brand{display:flex;align-items:center;gap:9px;font-family:'Sora',sans-serif;font-weight:800;font-size:1.1rem;margin-bottom:28px}
+  .brand b{color:var(--green-br)}
+  .brand a{color:var(--text);text-decoration:none;display:flex;align-items:center;gap:9px}
+  ul{margin:10px 0 10px 20px}
+  li{margin-bottom:6px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px 22px;margin:18px 0}
+  .card p{margin:0}
+  footer{margin-top:60px;padding-top:24px;border-top:1px solid var(--line);font-size:.82rem;color:var(--muted)}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand">
+      <a href="/">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.5L20 4.5" stroke="currentColor" stroke-width="3.2"/><path d="M12 20.5L6.4 7.8" stroke="#00D478" stroke-width="3.2"/></svg>
+        Vier<b>Afrik</b>
+      </a>
+    </div>
+
+    <h1>Politique de confidentialité</h1>
+    <div class="updated">Dernière mise à jour : 27 juillet 2026</div>
+
+    <p>VierAfrik ("nous") propose une application de gestion business (factures, clients, paiements Mobile Money, Coach IA, Réseau commerçants, comparateur de prix). Cette page explique quelles données nous collectons quand vous utilisez VierAfrik, comment elles sont protégées, et quels sont vos droits.</p>
+
+    <h2>1. Qui est responsable de vos données</h2>
+    <p>VierAfrik est édité par Prisca Akoua. Pour toute question relative à vos données personnelles, vous pouvez nous écrire à <a href="mailto:contactvierafrik@gmail.com">contactvierafrik@gmail.com</a>.</p>
+
+    <h2>2. Données que nous collectons</h2>
+    <p>Nous collectons uniquement les données nécessaires au fonctionnement de l'application :</p>
+    <ul>
+      <li><strong>Compte :</strong> nom, adresse email, mot de passe (chiffré), numéro de téléphone, nom de votre business, pays et ville.</li>
+      <li><strong>Données d'activité que vous saisissez :</strong> transactions (ventes, dépenses), factures, fiches clients, employés et paiements d'équipe, avis laissés dans l'app.</li>
+      <li><strong>Contenus optionnels :</strong> carte de visite digitale, logo généré, publications dans le Réseau commerçants, prix renseignés dans le comparateur de prix.</li>
+      <li><strong>Paiements Mobile Money :</strong> nous recevons une référence de transaction et son statut (payée, en attente...) de la part de notre prestataire de paiement. Nous ne recevons et ne stockons jamais vos identifiants Mobile Money, numéro de carte, ou mot de passe bancaire.</li>
+      <li><strong>Données techniques minimales :</strong> un compteur d'usage interne (nombre d'actions réalisées) pour le fonctionnement des plans d'abonnement, sans profilage publicitaire.</li>
+    </ul>
+    <div class="card">
+      <p><strong>Ce que nous ne faisons pas :</strong> VierAfrik n'utilise aucun outil de tracking publicitaire tiers (pas de Google Analytics, pas de pixel Facebook, pas de cookies publicitaires). Nous ne vendons jamais vos données à des tiers.</p>
+    </div>
+
+    <h2>3. Pourquoi nous utilisons ces données</h2>
+    <ul>
+      <li>Faire fonctionner votre compte et vos fonctionnalités (factures, clients, statistiques, Coach IA).</li>
+      <li>Traiter vos encaissements Mobile Money via notre prestataire de paiement.</li>
+      <li>Afficher votre profil dans le Réseau commerçants si vous choisissez de le publier.</li>
+      <li>Vous contacter en cas de problème sur votre compte, si vous nous sollicitez.</li>
+      <li>Respecter nos obligations légales.</li>
+    </ul>
+
+    <h2>4. Comment vos données sont protégées</h2>
+    <p>Vos données sont hébergées chez Supabase (infrastructure PostgreSQL sécurisée) avec chiffrement en transit (SSL/TLS). Chaque compte est isolé techniquement des autres grâce à des règles de sécurité au niveau base de données (Row Level Security) : un utilisateur ne peut jamais accéder aux données d'un autre utilisateur, même en cas de faille applicative.</p>
+
+    <h2>5. Avec qui vos données sont partagées</h2>
+    <p>Nous ne partageons vos données qu'avec les prestataires strictement nécessaires au fonctionnement du service :</p>
+    <ul>
+      <li><strong>Supabase</strong> — hébergement de la base de données et authentification.</li>
+      <li><strong>Vercel</strong> — hébergement de l'application et du site.</li>
+      <li><strong>FedaPay</strong> — traitement des paiements Mobile Money (Orange Money, MTN, Wave, Moov), uniquement pour les transactions que vous initiez.</li>
+    </ul>
+    <p>Ces prestataires n'ont accès qu'aux données strictement nécessaires à leur mission et n'ont pas le droit de les utiliser à d'autres fins.</p>
+
+    <h2>6. Durée de conservation</h2>
+    <p>Vos données sont conservées tant que votre compte est actif. Si vous supprimez votre compte, vos données sont supprimées de notre base de données, à l'exception des informations que nous devons conserver pour respecter une obligation légale (par exemple des données comptables si la loi l'exige).</p>
+
+    <h2>7. Vos droits</h2>
+    <ul>
+      <li><strong>Accès et export :</strong> vous pouvez exporter une copie de vos données à tout moment depuis l'application (Compte → Backup JSON).</li>
+      <li><strong>Rectification :</strong> vous pouvez modifier vos informations directement dans l'application (Compte).</li>
+      <li><strong>Suppression :</strong> vous pouvez demander la suppression complète de votre compte et de vos données en nous écrivant à <a href="mailto:contactvierafrik@gmail.com">contactvierafrik@gmail.com</a>.</li>
+      <li><strong>Opposition :</strong> vous pouvez à tout moment retirer votre profil du Réseau commerçants depuis les réglages de votre compte.</li>
+    </ul>
+
+    <h2>8. Âge minimum</h2>
+    <p>VierAfrik s'adresse aux entrepreneurs et professionnels. L'application n'est pas destinée aux personnes de moins de 18 ans.</p>
+
+    <h2>9. Modifications de cette politique</h2>
+    <p>Nous pouvons mettre à jour cette politique de confidentialité, par exemple si nous ajoutons une nouvelle fonctionnalité. La date de dernière mise à jour est indiquée en haut de cette page. En cas de changement important, nous vous en informerons dans l'application.</p>
+
+    <h2>10. Nous contacter</h2>
+    <p>Pour toute question sur cette politique ou sur vos données personnelles : <a href="mailto:contactvierafrik@gmail.com">contactvierafrik@gmail.com</a> ou via <a href="https://wa.me/31627374813" target="_blank" rel="noopener noreferrer">WhatsApp</a>.</p>
+
+    <footer>© 2026 VierAfrik — <a href="/">vierafrik.com</a></footer>
+  </div>
+</body>
+</html>

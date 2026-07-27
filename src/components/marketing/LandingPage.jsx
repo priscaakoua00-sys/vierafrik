@@ -685,7 +685,7 @@ export default function LandingPage({ onGetStarted, onLogin }) {
               </div>
             </div>
             <div className="foot-col"><h4>Application</h4><a href="#fonctionnalites">Fonctionnalités</a><a href="#paiements">Paiements</a><a href="#plans">Tarifs</a><a href="#" onClick={go(onLogin)}>Ouvrir l'app</a></div>
-            <div className="foot-col"><h4>Ressources</h4><a href="#ebook">eBook gratuit</a><a href="#fondatrice">À propos</a></div>
+            <div className="foot-col"><h4>Ressources</h4><a href="#ebook">eBook gratuit</a><a href="#fondatrice">À propos</a><a href="/privacy-policy.html">Confidentialité</a></div>
             <div className="foot-col"><h4>Contact</h4><a href="https://wa.me/31627374813?text=Bonjour%2C%20je%20veux%20en%20savoir%20plus%20sur%20VierAfrik" target="_blank" rel="noopener noreferrer">WhatsApp</a><a href="mailto:contactvierafrik@gmail.com">Email</a><a href="https://www.tiktok.com/@vierafrik" target="_blank" rel="noopener noreferrer">TikTok</a></div>
           </div>
           <div className="foot-bottom">
