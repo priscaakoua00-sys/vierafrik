@@ -25,6 +25,22 @@
       "purpose": "any maskable"
     }
   ],
+  "screenshots": [
+    {
+      "src": "/screenshots/dashboard.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Tableau de bord VierAfrik"
+    },
+    {
+      "src": "/screenshots/factures.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Factures et suivi des paiements"
+    }
+  ],
   "shortcuts": [
     {
       "name": "Nouvelle vente",
