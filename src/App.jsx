@@ -6317,7 +6317,19 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
   const [forme, setForme]       = useState("rond");
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
+  const [loading, setLoading]   = useState(true);
   const logoRef = useRef(null);
+  // Devient vrai dès que l'utilisateur touche à un réglage. Empêche le
+  // chargement asynchrone du logo sauvegardé (ci-dessous) d'écraser un choix
+  // que l'utilisateur vient de faire pendant que la requête était encore en
+  // vol, ce qui donnait l'impression que la sélection "ne restait pas en
+  // place" ou changeait toute seule au moment du téléchargement, d'autant
+  // plus souvent que la connexion était lente.
+  const userEdited = useRef(false);
+  const chooseStyle = (i) => { userEdited.current = true; setStyleIdx(i); };
+  const chooseCouleur1 = (c) => { userEdited.current = true; setCouleur1(c); };
+  const chooseCouleur2 = (c) => { userEdited.current = true; setCouleur2(c); };
+  const chooseForme = (f) => { userEdited.current = true; setForme(f); };
 
   const T = {
     c1:"#05090f", c2:"#08111d", c3:"#0d1828",
@@ -6332,13 +6344,16 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
         const s = await getSupa();
         const { data } = await s.from("logos").select("*").eq("user_id", user.id).maybeSingle();
         if (data) {
-          setStyleIdx(data.style_idx ?? 0);
-          setCouleur1(data.couleur1 || accent);
-          setCouleur2(data.couleur2 || "#00bfcc");
-          setForme(data.forme || "rond");
+          if (!userEdited.current) {
+            setStyleIdx(data.style_idx ?? 0);
+            setCouleur1(data.couleur1 || accent);
+            setCouleur2(data.couleur2 || "#00bfcc");
+            setForme(data.forme || "rond");
+          }
           setSaved(true);
         }
       } catch(e) {}
+      setLoading(false);
     })();
   }, [user.id]);
 
@@ -6531,6 +6546,8 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
     }
   };
 
+  if (loading) return <div style={{ textAlign:"center", padding:"2rem", color:T.sub }}>⏳ Chargement...</div>;
+
   return (
     <div style={{ fontFamily:"'Inter','Segoe UI',system-ui,sans-serif", color:T.text }}>
 
@@ -6561,7 +6578,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
         <div style={{ fontWeight:800,fontSize:13,marginBottom:12 }}>Style du logo</div>
         <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16 }}>
           {STYLES.map((s, i) => (
-            <div key={i} onClick={() => setStyleIdx(i)} style={{
+            <div key={i} onClick={() => chooseStyle(i)} style={{
               background: styleIdx===i ? `${couleur1}20` : T.c2,
               border: `1px solid ${styleIdx===i ? couleur1 : T.border}`,
               borderRadius:10, padding:"8px 4px", textAlign:"center",
@@ -6581,7 +6598,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
               color:T.sub,display:"block",marginBottom:6 }}>Couleur principale</label>
             <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
               {COULEURS_1.map(c => (
-                <div key={c} onClick={() => setCouleur1(c)} style={{
+                <div key={c} onClick={() => chooseCouleur1(c)} style={{
                   width:24,height:24,borderRadius:"50%",background:c,cursor:"pointer",
                   border:couleur1===c?"3px solid #fff":"2px solid transparent",
                   boxShadow:couleur1===c?`0 0 0 2px ${c}`:"",
@@ -6595,7 +6612,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
               color:T.sub,display:"block",marginBottom:6 }}>Couleur secondaire</label>
             <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
               {COULEURS_2.map(c => (
-                <div key={c} onClick={() => setCouleur2(c)} style={{
+                <div key={c} onClick={() => chooseCouleur2(c)} style={{
                   width:24,height:24,borderRadius:"50%",background:c,cursor:"pointer",
                   border:couleur2===c?"3px solid #fff":"2px solid transparent",
                   boxShadow:couleur2===c?`0 0 0 2px ${c}`:"",
@@ -6612,7 +6629,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
             color:T.sub,display:"block",marginBottom:6 }}>Forme</label>
           <div style={{ display:"flex",gap:8 }}>
             {[["rond","⭕ Rond"],["carre","🔲 Carré"],["libre","🔷 Libre"]].map(([f, label]) => (
-              <div key={f} onClick={() => setForme(f)} style={{
+              <div key={f} onClick={() => chooseForme(f)} style={{
                 flex:1, background:forme===f?`${couleur1}20`:T.c2,
                 border:`1px solid ${forme===f?couleur1:T.border}`,
                 borderRadius:8, padding:"6px", textAlign:"center",
