@@ -12,20 +12,20 @@ export const INF = Number.POSITIVE_INFINITY;
 export const PLANS = {
   free: {
     label:"Free", emoji:"🌱", price:0, col:"#80a8c8",
-    maxTx:10, maxCli:3, maxInv:2, maxEmp:1,
-    pdf:false, wa:false, mm:false, ai:false,
+    maxTx:10, maxCli:3, maxInv:2, maxEmp:1, maxProd:5,
+    pdf:false, wa:false, mm:false, ai:false, store:false,
     roles:false, featured:false, verified:false, advancedStats:false, prioritySupport:false,
   },
   pro: {
     label:"Pro", emoji:"⚡", price:4900, col:"#00d478",
-    maxTx:INF, maxCli:INF, maxInv:INF, maxEmp:5,
-    pdf:true, wa:true, mm:true, ai:true,
+    maxTx:INF, maxCli:INF, maxInv:INF, maxEmp:5, maxProd:INF,
+    pdf:true, wa:true, mm:true, ai:true, store:true,
     roles:false, featured:false, verified:false, advancedStats:false, prioritySupport:false,
   },
   business: {
     label:"Business", emoji:"🏆", price:9900, col:"#f0b020",
-    maxTx:INF, maxCli:INF, maxInv:INF, maxEmp:INF,
-    pdf:true, wa:true, mm:true, ai:true,
+    maxTx:INF, maxCli:INF, maxInv:INF, maxEmp:INF, maxProd:INF,
+    pdf:true, wa:true, mm:true, ai:true, store:true,
     roles:true, featured:true, verified:true, advancedStats:true, prioritySupport:true,
   },
 };

@@ -227,7 +227,34 @@ La persistance est 100% Supabase — pas de localStorage. Chaque action déclenc
 | action_count | int | Nombre d'actions réalisées |
 | last_action_at | timestamptz | Dernière action |
 
-> **RLS activé sur toutes les tables.** Chaque utilisateur ne voit que ses propres données via `auth.uid() = user_id`.
+### Table `products`
+| Colonne | Type | Description |
+|---------|------|-------------|
+| id | text PK | Identifiant unique |
+| user_id | uuid FK | Propriétaire |
+| name / description | text | Nom et détails du produit |
+| price | float8 | Prix en FCFA |
+| stock_qty | int (nullable) | Quantité en stock, `null` = service illimité |
+| low_stock_threshold | int | Seuil d'alerte stock faible |
+| active | boolean | Visible dans la boutique en ligne |
+
+### Table `store_settings`
+| Colonne | Type | Description |
+|---------|------|-------------|
+| user_id | uuid PK | Propriétaire (1 boutique par compte) |
+| slug | text unique | Identifiant du lien `/?boutique=slug` |
+| store_name / bio / whatsapp_number / banner_color | text | Réglages d'affichage |
+| published | boolean | Boutique visible publiquement ou non |
+
+### Table `stock_movements`
+| Colonne | Type | Description |
+|---------|------|-------------|
+| id | text PK | Identifiant unique |
+| product_id | text FK | Produit concerné |
+| change | int | Quantité ajoutée (positif) ou retirée (négatif) |
+| reason | text | Motif libre (réassort, vente, casse…) |
+
+> **RLS activé sur toutes les tables.** Chaque utilisateur ne voit que ses propres données via `auth.uid() = user_id`. `products` et `store_settings` ajoutent une lecture publique (sans authentification) limitée aux produits actifs d'une boutique publiée — c'est ce qui alimente le lien partageable.
 
 ---
 
@@ -326,6 +353,12 @@ ALTER TABLE invoices ADD COLUMN IF NOT EXISTS client_id text DEFAULT '';
 
 ## 8. Roadmap & Points à Améliorer
 
+### ✅ Livré récemment
+- [x] **Boutique en ligne partageable** : lien public `/?boutique=slug`, catalogue produits, commande via WhatsApp (voir `PgBoutique` / `PublicStorePage`)
+- [x] **Gestion de stock** : produits avec quantité, seuil d'alerte, journal des mouvements (table `products` / `stock_movements`)
+- [x] **Comptes équipe (Mode Staff)** : accès par code PIN pour un employé (plan Business), vue restreinte vente/stock/clients sans les finances complètes (voir `StaffConsole`)
+- [x] **SEO structuré** : JSON-LD (SoftwareApplication + FAQPage), `robots.txt`, `sitemap.xml`
+
 ### Priorité haute
 - [ ] **Relance automatique WhatsApp** pour factures en retard (rappel J+7, J+14)
 - [ ] **Webhook NotchPay** pour mise à jour automatique du statut après paiement Mobile Money confirmé
@@ -342,7 +375,7 @@ ALTER TABLE invoices ADD COLUMN IF NOT EXISTS client_id text DEFAULT '';
 ### Priorité basse / Futur
 - [ ] **App mobile native** (React Native / Capacitor)
 - [ ] **API publique** pour intégrations tierces
-- [ ] **Multi-utilisateurs par entreprise** (comptable + gérant)
+- [ ] **Multi-utilisateurs avec comptes Supabase Auth distincts** (au-delà du Mode Staff par PIN déjà livré)
 - [ ] **Intelligence Coach IA** via API Claude/OpenAI pour réponses plus riches
 - [ ] **Marketplace** : connexion directe acheteurs / vendeurs dans le réseau VierAfrik
 
