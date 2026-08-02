@@ -3011,8 +3011,43 @@ function Dashboard({ses,logout,updSes}){
   const [flashId,setFlashId]=useState(null);
   const [staffMode,setStaffMode]=useState(null); // {id,name,role} employé actif en Mode Staff, ou null
   const [staffGateOpen,setStaffGateOpen]=useState(false);
+  const [installEvt,setInstallEvt]=useState(null); // événement beforeinstallprompt capturé (Android/Chrome/Edge)
+  const [showInstallBar,setShowInstallBar]=useState(false);
+  const [isIosInstall,setIsIosInstall]=useState(false);
   // FIX v31 #1, toastRef permet d'appeler toast() depuis loadAll (useEffect)
   const toastRef=useRef(null);
+
+  // ── Installation PWA, faire sentir une "vraie appli" sur téléphone/tablette ──
+  useEffect(() => {
+    try {
+      const alreadyInstalled = window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
+      const dismissed = localStorage.getItem("vaf_install_dismissed") === "1";
+      if (alreadyInstalled || dismissed) return;
+
+      const ua = window.navigator.userAgent || "";
+      const isIos = /iphone|ipad|ipod/i.test(ua);
+      if (isIos) {
+        setIsIosInstall(true);
+        setShowInstallBar(true);
+        return;
+      }
+      const onBeforeInstall = (e) => {
+        e.preventDefault();
+        setInstallEvt(e);
+        setShowInstallBar(true);
+      };
+      window.addEventListener("beforeinstallprompt", onBeforeInstall);
+      return () => window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+    } catch(_e) { /* pas de PWA install possible, ignorer silencieusement */ }
+  }, []);
+  const dismissInstallBar = () => { setShowInstallBar(false); try { localStorage.setItem("vaf_install_dismissed","1"); } catch(_e){} };
+  const runInstallPrompt = async () => {
+    if (!installEvt) return;
+    installEvt.prompt();
+    try { await installEvt.userChoice; } catch(_e) {}
+    setInstallEvt(null);
+    dismissInstallBar();
+  };
 
   // ── Compteur d'activité (analytics uniquement, le blocage se fait
   //  par ressource dans canAdd(), pas par ce compteur global) ──
@@ -8100,6 +8135,22 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
               <div style={{fontSize:11,color:"#ff6680",marginTop:2}}>Allez dans Compte → Diagnostic Supabase → collez votre anon key (eyJ...) depuis Supabase Dashboard → Settings → API</div>
             </div>
             <button onClick={()=>setPage("prefs")} style={{background:"#ff2255",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontFamily:"inherit",fontWeight:800,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>Corriger maintenant</button>
+          </div>
+        )}
+        {/* BANNIÈRE INSTALLATION PWA, transforme VierAfrik en vraie appli téléphone/tablette */}
+        {showInstallBar&&!staffMode&&(
+          <div style={{background:`linear-gradient(135deg,${accent}18,${T.teal}0c)`,borderBottom:`1px solid ${accent}33`,padding:"10px 16px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{fontSize:18,flexShrink:0}}>📲</span>
+            <div style={{flex:1,minWidth:180}}>
+              <div style={{fontWeight:800,fontSize:12,color:T.text}}>Installez VierAfrik comme une vraie application</div>
+              <div style={{fontSize:10.5,color:T.sub2,marginTop:1}}>
+                {isIosInstall ? "Appuyez sur Partager 􀈂 puis « Sur l'écran d'accueil »" : "Accès direct depuis votre écran d'accueil, sans navigateur"}
+              </div>
+            </div>
+            {!isIosInstall&&(
+              <button onClick={runInstallPrompt} style={{background:accent,color:T.ink,border:"none",borderRadius:9,padding:"7px 14px",fontFamily:"inherit",fontWeight:800,fontSize:11,cursor:"pointer",flexShrink:0}}>Installer</button>
+            )}
+            <button onClick={dismissInstallBar} style={{background:"none",border:"none",color:T.sub,fontSize:13,cursor:"pointer",padding:4,flexShrink:0}}>✕</button>
           </div>
         )}
         <div style={{padding:"1.2rem",maxWidth:1340,margin:"0 auto"}}>

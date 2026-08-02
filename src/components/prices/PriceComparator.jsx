@@ -217,10 +217,11 @@ export default function PriceComparator({ user, accent = T.gr, toast, getSupa })
 
       {/* Formulaire d'ajout */}
       {showForm && (
-        <div onClick={()=>setShowForm(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:400, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+        <div onClick={()=>setShowForm(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:950, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
           <div onClick={e=>e.stopPropagation()} style={{
             background:T.c1, border:`1px solid ${T.border}`, borderTopLeftRadius:24, borderTopRightRadius:24,
-            padding:"1.4rem 1.3rem 1.8rem", width:"100%", maxWidth:480, maxHeight:"85vh", overflowY:"auto",
+            padding:"1.4rem 1.3rem 0", width:"100%", maxWidth:480, maxHeight:"85vh", overflowY:"auto",
+            display:"flex", flexDirection:"column",
           }}>
             <div style={{ fontWeight:900, fontSize:16, marginBottom:14 }}>+ Ajouter un prix</div>
 
@@ -273,7 +274,12 @@ export default function PriceComparator({ user, accent = T.gr, toast, getSupa })
             <input value={form.note} onChange={e=>setForm(p=>({...p, note:e.target.value}))} placeholder="Ex : prix marché, prix boutique..."
               style={{ width:"100%", background:T.c2, border:`1px solid ${T.border}`, borderRadius:10, padding:"10px 12px", color:T.text, fontSize:13, fontFamily:"inherit", margin:"6px 0 18px" }}/>
 
-            <div style={{ display:"flex", gap:8 }}>
+            {/* Sticky, reste visible même si le clavier réduit l'espace disponible */}
+            <div style={{
+              display:"flex", gap:8, position:"sticky", bottom:0,
+              background:T.c1, paddingTop:12, paddingBottom:"calc(1.4rem + env(safe-area-inset-bottom))",
+              marginTop:"auto",
+            }}>
               <button onClick={()=>setShowForm(false)} style={{ flex:1, background:T.c3, color:T.text, border:"none", borderRadius:12, padding:"12px", fontFamily:"inherit", fontWeight:700, fontSize:13, cursor:"pointer" }}>Annuler</button>
               <button onClick={submitPrice} disabled={saving} style={{
                 flex:2, background:`linear-gradient(135deg,${accent},${T.teal})`, color:T.ink, border:"none", borderRadius:12,
