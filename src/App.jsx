@@ -456,6 +456,7 @@ const xid = () => {
     });
   }
 };
+const genPin=()=>String(Math.floor(1000+Math.random()*9000));
 const today=()=>new Date().toISOString().slice(0,10);
 const mkey=(d)=>(d||today()).slice(0,7);
 const mkeyLabel=(k)=>{ const [y,m]=(k||mkey()).split("-").map(Number); const d=new Date(y,(m||1)-1,1); return d.toLocaleDateString("fr-FR",{month:"long",year:"numeric"}).replace(/^./,c=>c.toUpperCase()); };
@@ -2335,6 +2336,140 @@ function ResetPasswordPage(){
   );
 }
 
+// ════════════════════════════════════════════════════════
+//  BOUTIQUE PUBLIQUE, accessible SANS login
+//  URL : https://vierafrik.com/?boutique=SLUG
+// ════════════════════════════════════════════════════════
+function PublicStorePage({ slug }) {
+  const [store, setStore] = useState(null);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const s = await getPublicSupa();
+        const { data: st, error: stErr } = await s
+          .from("store_settings").select("*")
+          .eq("slug", slug).eq("published", true).maybeSingle();
+        if (stErr || !st) { setNotFound(true); setLoading(false); return; }
+        setStore(st);
+        // SEO minimal, titre + description dynamiques (page rendue côté client)
+        try {
+          document.title = `${st.store_name || "Boutique"} — VierAfrik`;
+          let meta = document.querySelector('meta[name="description"]');
+          if (!meta) { meta = document.createElement("meta"); meta.name = "description"; document.head.appendChild(meta); }
+          meta.content = st.bio || `Découvrez les produits de ${st.store_name} sur VierAfrik.`;
+        } catch(_) {}
+        const { data: prods } = await s
+          .from("products").select("*")
+          .eq("user_id", st.user_id).eq("active", true)
+          .order("created_at", { ascending: false });
+        setItems(prods || []);
+      } catch(e) {
+        console.error("[PublicStorePage] load error:", e);
+        setNotFound(true);
+      } finally { setLoading(false); }
+    })();
+  }, [slug]);
+
+  const waLink = (product) => {
+    const num = (store?.whatsapp_number || "").replace(/\D/g, "");
+    const msg = encodeURIComponent(`Bonjour ${store?.store_name || ""}, je suis intéressé(e) par « ${product.name} » (${fmt(product.price)} FCFA). Est-ce disponible ?`);
+    return num ? `https://wa.me/${num}?text=${msg}` : null;
+  };
+
+  if (loading) {
+    return (
+      <div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{width:44,height:44,border:`3px solid ${T.c3}`,borderTop:`3px solid ${T.gr}`,borderRadius:"50%",animation:"spin .75s linear infinite"}}/>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    );
+  }
+
+  if (notFound || !store) {
+    return (
+      <div style={{minHeight:"100vh",background:T.bg,color:T.text,display:"flex",alignItems:"center",justifyContent:"center",padding:20,textAlign:"center",fontFamily:"'Inter','Segoe UI',system-ui,sans-serif"}}>
+        <div>
+          <div style={{fontSize:52,marginBottom:14}}>🔍</div>
+          <div style={{fontWeight:800,fontSize:18,marginBottom:8}}>Boutique introuvable</div>
+          <div style={{color:T.sub2,fontSize:13,marginBottom:20}}>Ce lien n'existe pas ou n'est plus actif.</div>
+          <a href="https://vierafrik.com" style={{color:T.gr,fontWeight:700,textDecoration:"none",fontSize:13}}>→ Découvrir VierAfrik</a>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{minHeight:"100vh",background:T.bg,color:T.text,fontFamily:"'Inter','Segoe UI',system-ui,sans-serif"}}>
+      <style>{`
+        *{box-sizing:border-box}
+        @keyframes slideUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+        .vaf-store-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
+      `}</style>
+      <div style={{background:`linear-gradient(135deg,${store.banner_color||T.gr},${T.teal})`,padding:"38px 20px 30px"}}>
+        <div style={{maxWidth:900,margin:"0 auto"}}>
+          <div style={{display:"inline-flex",alignItems:"center",gap:8,background:"rgba(0,0,0,.22)",borderRadius:20,padding:"4px 12px",marginBottom:14,fontSize:11,fontWeight:700,color:"#fff"}}>
+            🌍 Propulsé par VierAfrik
+          </div>
+          <div style={{fontWeight:900,fontSize:"clamp(1.6rem,5vw,2.4rem)",color:"#fff",letterSpacing:"-.03em"}}>{store.store_name}</div>
+          {store.bio && <div style={{color:"rgba(255,255,255,.88)",fontSize:14,marginTop:8,maxWidth:560,lineHeight:1.5}}>{store.bio}</div>}
+          {store.whatsapp_number && (
+            <a href={`https://wa.me/${store.whatsapp_number.replace(/\D/g,"")}`} target="_blank" rel="noopener noreferrer"
+              style={{display:"inline-flex",alignItems:"center",gap:7,marginTop:16,background:"#25D366",color:"#fff",fontWeight:800,fontSize:13,padding:"10px 18px",borderRadius:11,textDecoration:"none",boxShadow:"0 8px 24px rgba(0,0,0,.25)"}}>
+              💬 Contacter sur WhatsApp
+            </a>
+          )}
+        </div>
+      </div>
+
+      <div style={{maxWidth:900,margin:"0 auto",padding:"26px 20px 60px"}}>
+        {items.length === 0 ? (
+          <div style={{textAlign:"center",padding:"3rem 1rem",color:T.sub2}}>
+            <div style={{fontSize:44,marginBottom:10}}>📦</div>
+            <div style={{fontSize:14}}>Aucun produit disponible pour le moment.</div>
+          </div>
+        ) : (
+          <div className="vaf-store-grid">
+            {items.map(p => {
+              const outOfStock = p.stock_qty !== null && p.stock_qty <= 0;
+              const link = waLink(p);
+              return (
+                <div key={p.id} style={{background:T.c1,border:`1px solid ${T.border}`,borderRadius:16,overflow:"hidden",animation:"slideUp .3s ease both",opacity:outOfStock?.6:1}}>
+                  <div style={{height:130,background:p.image_url?`url(${p.image_url}) center/cover`:`linear-gradient(135deg,${T.c2},${T.c3})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:34}}>
+                    {!p.image_url && "🛍️"}
+                  </div>
+                  <div style={{padding:"12px 14px"}}>
+                    <div style={{fontWeight:800,fontSize:13.5,marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
+                    {p.description && <div style={{fontSize:11,color:T.sub2,marginBottom:8,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{p.description}</div>}
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:8}}>
+                      <div style={{fontWeight:900,fontSize:15,color:T.gr}}>{fmt(p.price)} <span style={{fontSize:10,fontWeight:700,color:T.sub}}>FCFA</span></div>
+                      {outOfStock && <span style={{fontSize:9,fontWeight:800,color:T.red,background:"rgba(255,34,85,.1)",borderRadius:20,padding:"2px 8px"}}>Rupture</span>}
+                    </div>
+                    {link && !outOfStock && (
+                      <a href={link} target="_blank" rel="noopener noreferrer"
+                        style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginTop:10,background:"#25D366",color:"#fff",fontWeight:800,fontSize:11.5,padding:"9px",borderRadius:9,textDecoration:"none"}}>
+                        💬 Commander
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div style={{textAlign:"center",marginTop:40,paddingTop:20,borderTop:`1px solid ${T.border}`}}>
+          <a href="https://vierafrik.com" style={{color:T.sub,fontSize:11.5,textDecoration:"none"}}>
+            Créez votre boutique en ligne gratuitement avec <span style={{color:T.gr,fontWeight:800}}>VierAfrik</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ════════════════════════════════
 //  ROOT, Gestion session unique
 // ════════════════════════════════
@@ -2435,6 +2570,13 @@ export default function App(){
   const payInvId = new URLSearchParams(window.location.search).get("pay");
   if(payInvId){
     return <PublicPayPage invoiceId={payInvId}/>;
+  }
+
+  // ── BOUTIQUE PUBLIQUE, PRIORITÉ ABSOLUE, avant tout chargement de session ──
+  // Un client qui reçoit un lien ?boutique= n'a pas de compte VierAfrik.
+  const boutiqueSlug = new URLSearchParams(window.location.search).get("boutique");
+  if(boutiqueSlug){
+    return <PublicStorePage slug={boutiqueSlug}/>;
   }
 
   // Chargement de la session en cours
@@ -2867,8 +3009,45 @@ function Dashboard({ses,logout,updSes}){
   const [notOpen,setNot]=useState(false);
   const [confirmState,setConfirm]=useState(null);
   const [flashId,setFlashId]=useState(null);
+  const [staffMode,setStaffMode]=useState(null); // {id,name,role} employé actif en Mode Staff, ou null
+  const [staffGateOpen,setStaffGateOpen]=useState(false);
+  const [installEvt,setInstallEvt]=useState(null); // événement beforeinstallprompt capturé (Android/Chrome/Edge)
+  const [showInstallBar,setShowInstallBar]=useState(false);
+  const [isIosInstall,setIsIosInstall]=useState(false);
   // FIX v31 #1, toastRef permet d'appeler toast() depuis loadAll (useEffect)
   const toastRef=useRef(null);
+
+  // ── Installation PWA, faire sentir une "vraie appli" sur téléphone/tablette ──
+  useEffect(() => {
+    try {
+      const alreadyInstalled = window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
+      const dismissed = localStorage.getItem("vaf_install_dismissed") === "1";
+      if (alreadyInstalled || dismissed) return;
+
+      const ua = window.navigator.userAgent || "";
+      const isIos = /iphone|ipad|ipod/i.test(ua);
+      if (isIos) {
+        setIsIosInstall(true);
+        setShowInstallBar(true);
+        return;
+      }
+      const onBeforeInstall = (e) => {
+        e.preventDefault();
+        setInstallEvt(e);
+        setShowInstallBar(true);
+      };
+      window.addEventListener("beforeinstallprompt", onBeforeInstall);
+      return () => window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+    } catch(_e) { /* pas de PWA install possible, ignorer silencieusement */ }
+  }, []);
+  const dismissInstallBar = () => { setShowInstallBar(false); try { localStorage.setItem("vaf_install_dismissed","1"); } catch(_e){} };
+  const runInstallPrompt = async () => {
+    if (!installEvt) return;
+    installEvt.prompt();
+    try { await installEvt.userChoice; } catch(_e) {}
+    setInstallEvt(null);
+    dismissInstallBar();
+  };
 
   // ── Compteur d'activité (analytics uniquement, le blocage se fait
   //  par ressource dans canAdd(), pas par ce compteur global) ──
@@ -4079,6 +4258,25 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         </div>
         <div style={{fontSize:18,color:accent,flexShrink:0}}>→</div>
       </div>
+      {/* ── RACCOURCIS PRODUITS & BOUTIQUE ── */}
+      <div className="pg-grid-2" style={{marginBottom:12}}>
+        <div onClick={()=>setPage("produits")} style={{cursor:"pointer",background:T.c1,border:`1px solid ${T.border}`,borderRadius:14,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,transition:"border-color .2s"}}
+          onMouseEnter={e=>e.currentTarget.style.borderColor=`${T.blue}44`} onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
+          <div style={{width:36,height:36,borderRadius:10,background:`${T.blue}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📦</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:800,fontSize:12.5,color:T.text}}>Produits & Stock</div>
+            <div style={{fontSize:10,color:T.sub2}}>Gérer le catalogue</div>
+          </div>
+        </div>
+        <div onClick={()=>setPage("boutique")} style={{cursor:"pointer",background:T.c1,border:`1px solid ${T.border}`,borderRadius:14,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,transition:"border-color .2s"}}
+          onMouseEnter={e=>e.currentTarget.style.borderColor=`${T.gold}44`} onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
+          <div style={{width:36,height:36,borderRadius:10,background:`${T.gold}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>🛍️</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:800,fontSize:12.5,color:T.text}}>Ma Boutique</div>
+            <div style={{fontSize:10,color:T.sub2}}>Lien à partager</div>
+          </div>
+        </div>
+      </div>
       {/* Alerte */}
       {invs.filter(i=>i.status==="overdue").length>0&&(
         <div style={{background:"linear-gradient(135deg,rgba(255,34,85,.08),rgba(255,34,85,.04))",border:"1px solid rgba(255,34,85,.25)",borderRadius:14,padding:"12px 16px",marginBottom:12,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",boxShadow:"0 4px 20px rgba(255,34,85,.1)"}}>
@@ -4460,6 +4658,8 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         salary: parseFloat(fmEmp.salary),
         currency: fmEmp.currency || "XOF",
         role: plan.roles ? (fmEmp.role || "Employé") : "Employé",
+        has_access: plan.roles ? !!fmEmp.has_access : false,
+        access_pin: (plan.roles && fmEmp.has_access) ? (fmEmp.access_pin || genPin()) : null,
         created_at: new Date().toISOString(),
       };
       // Optimistic update
@@ -4492,6 +4692,8 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         salary: parseFloat(fmEmp.salary),
         currency: fmEmp.currency || "XOF",
         role: fmEmp.role || "Employé",
+        has_access: plan.roles ? !!fmEmp.has_access : false,
+        access_pin: (plan.roles && fmEmp.has_access) ? (fmEmp.access_pin || genPin()) : null,
       };
       setEmps(prev => prev.map(e => e.id === updated.id ? updated : e));
       setMdlEmp(null); setFmEmp({});
@@ -4500,6 +4702,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         const { error } = await s.from("employees").update({
           name: updated.name, phone: updated.phone || "",
           salary: updated.salary, currency: updated.currency, role: updated.role,
+          has_access: updated.has_access, access_pin: updated.access_pin,
         }).eq("id", updated.id);
         if (error) {
           if (prevEmp) setEmps(prev => prev.map(e => e.id === updated.id ? prevEmp : e));
@@ -4681,6 +4884,9 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                         {plan.roles && emp.role && (
                           <span style={{ fontSize:8.5, fontWeight:800, color:T.gold, background:`${T.gold}18`, border:`1px solid ${T.gold}33`, borderRadius:20, padding:"1px 7px", flexShrink:0 }}>{emp.role}</span>
                         )}
+                        {emp.has_access && (
+                          <span title={`PIN ${emp.access_pin||""}`} style={{ fontSize:8.5, fontWeight:800, color:T.purple, background:`${T.purple}18`, border:`1px solid ${T.purple}33`, borderRadius:20, padding:"1px 7px", flexShrink:0 }}>🔐 {emp.access_pin}</span>
+                        )}
                       </div>
                       {emp.phone && <div style={{ fontSize:10, color:T.sub2, marginTop:1 }}>📞 {emp.phone}</div>}
                     </div>
@@ -4785,6 +4991,33 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                 {ROLE_LABELS.map(r=><option key={r} value={r}>{r}</option>)}
               </select>
             </FL>
+          )}
+          {plan.roles ? (
+            <div style={{ background:fmEmp.has_access?`${T.purple}0e`:T.c3, border:`1px solid ${fmEmp.has_access?T.purple+"33":T.border}`, borderRadius:12, padding:"12px 14px", marginBottom:13 }}>
+              <label style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
+                <input type="checkbox" checked={!!fmEmp.has_access}
+                  onChange={ev=>setFmEmp(f=>({...f, has_access:ev.target.checked, access_pin: ev.target.checked ? (f.access_pin||genPin()) : f.access_pin}))}
+                  style={{ width:17, height:17, accentColor:T.purple, flexShrink:0 }}/>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:800, fontSize:12.5, color:T.text }}>🔐 Accès Mode Staff</div>
+                  <div style={{ fontSize:10.5, color:T.sub2, marginTop:1 }}>Permet à cette personne d'enregistrer des ventes et de consulter le stock, sans voir les finances complètes.</div>
+                </div>
+              </label>
+              {fmEmp.has_access && (
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:11, paddingTop:11, borderTop:`1px solid ${T.border}` }}>
+                  <div style={{ fontSize:10, color:T.sub, fontWeight:700, textTransform:"uppercase", letterSpacing:".05em" }}>Code PIN</div>
+                  <div style={{ fontFamily:"monospace", fontWeight:900, fontSize:16, color:T.purple, letterSpacing:".12em", background:T.c2, borderRadius:8, padding:"3px 10px" }}>{fmEmp.access_pin||genPin()}</div>
+                  <button type="button" onClick={()=>setFmEmp(f=>({...f, access_pin: genPin()}))}
+                    style={{ marginLeft:"auto", background:"none", border:`1px solid ${T.border}`, borderRadius:8, color:T.sub2, fontSize:10, fontWeight:700, padding:"5px 9px", cursor:"pointer" }}>
+                    🔄 Régénérer
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ background:`${T.gold}0c`, border:`1px solid ${T.gold}28`, borderRadius:9, padding:"9px 12px", marginBottom:13, fontSize:11, color:T.sub2 }}>
+              🔒 L'accès Mode Staff (comptes équipe avec PIN) est réservé au plan Business.
+            </div>
           )}
           <div style={{ background:`${T.gr}08`, border:`1px solid ${T.gr}18`, borderRadius:9, padding:"9px 12px", marginBottom:13, fontSize:11, color:T.sub2 }}>
             🌍 Système universel · Aucun calcul fiscal · 100% mondial
@@ -5007,6 +5240,469 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             </>
           )}
         </Modal>
+      </div>
+    );
+  };
+
+  // ══════════════════════════════════════════════════════════
+  //  MODULE PRODUITS & STOCK
+  //  - CRUD produits (Supabase : table "products")
+  //  - Ajustement de stock avec journal (table "stock_movements")
+  //  - Plan Free = 5 produits max / Pro & Business = illimité
+  //  - Alimente la Boutique publique (PgBoutique / PublicStorePage)
+  // ══════════════════════════════════════════════════════════
+  const PgProduits = () => {
+    const [prods, setProds]         = useState([]);
+    const [loadingPr, setLoadingPr] = useState(true);
+    const [mdlPr, setMdlPr]         = useState(null); // "add"|"edit"|"stock"
+    const [fmPr, setFmPr]           = useState({});
+    const [stockTarget, setStockTarget] = useState(null);
+    const [stockDelta, setStockDelta]   = useState("");
+    const [stockReason, setStockReason] = useState("");
+    const [savingPr, setSavingPr]   = useState(false);
+
+    const loadProds = async () => {
+      setLoadingPr(true);
+      try {
+        const s = await getSupa();
+        const { data, error } = await s
+          .from("products").select("*")
+          .eq("user_id", uid).order("created_at", { ascending: false });
+        if (!error && data) setProds(data);
+      } catch(e) { console.error("products load:", e); }
+      finally { setLoadingPr(false); }
+    };
+    useEffect(() => { loadProds();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [uid]);
+
+    const validatePr = () => {
+      if (!fmPr.name?.trim()) { toast("⚠️ Le nom du produit est obligatoire", "err"); return false; }
+      if (fmPr.price===undefined || fmPr.price==="" || parseFloat(fmPr.price) < 0) { toast("⚠️ Prix invalide", "err"); return false; }
+      return true;
+    };
+
+    const addProduct = async () => {
+      if (!validatePr()) return;
+      if (!isAdmin && prods.length >= (plan.maxProd ?? 5)) {
+        toast(`🔒 Plan ${plan.label}, ${plan.maxProd} produits max. Passez à Pro pour un catalogue illimité !`, "warn"); return;
+      }
+      setSavingPr(true);
+      const prod = {
+        id: xid(), user_id: uid,
+        name: fmPr.name.trim(),
+        description: fmPr.description || "",
+        price: parseFloat(fmPr.price) || 0,
+        stock_qty: fmPr.unlimited ? null : (fmPr.stock_qty===""||fmPr.stock_qty===undefined ? 0 : parseInt(fmPr.stock_qty,10)),
+        low_stock_threshold: fmPr.low_stock_threshold ? parseInt(fmPr.low_stock_threshold,10) : 3,
+        image_url: fmPr.image_url || "",
+        category: fmPr.category || "",
+        active: fmPr.active===false ? false : true,
+        created_at: new Date().toISOString(),
+      };
+      setProds(prev => [prod, ...prev]);
+      setMdlPr(null); setFmPr({});
+      setFlashId(prod.id);
+      toast("📦 Produit ajouté !");
+      try {
+        const s = await getSupa();
+        const { error } = await s.from("products").insert(prod);
+        if (error) {
+          setProds(prev => prev.filter(p => p.id !== prod.id));
+          toast("❌ Erreur sauvegarde, réessayez", "err");
+          console.error("products insert:", error);
+        } else { markUserActive(uid); }
+      } catch(e) {
+        setProds(prev => prev.filter(p => p.id !== prod.id));
+        toast("❌ Erreur réseau", "err");
+      }
+      setSavingPr(false);
+    };
+
+    const updateProduct = async () => {
+      if (!validatePr()) return;
+      setSavingPr(true);
+      const prevProd = prods.find(p => p.id === fmPr.id);
+      const updated = {
+        ...fmPr,
+        name: fmPr.name.trim(),
+        description: fmPr.description || "",
+        price: parseFloat(fmPr.price) || 0,
+        stock_qty: fmPr.unlimited ? null : (fmPr.stock_qty===""||fmPr.stock_qty===undefined ? 0 : parseInt(fmPr.stock_qty,10)),
+        low_stock_threshold: fmPr.low_stock_threshold ? parseInt(fmPr.low_stock_threshold,10) : 3,
+        active: fmPr.active===false ? false : true,
+      };
+      setProds(prev => prev.map(p => p.id === updated.id ? updated : p));
+      setMdlPr(null); setFmPr({});
+      try {
+        const s = await getSupa();
+        const { error } = await s.from("products").update({
+          name: updated.name, description: updated.description, price: updated.price,
+          stock_qty: updated.stock_qty, low_stock_threshold: updated.low_stock_threshold,
+          image_url: updated.image_url || "", category: updated.category || "", active: updated.active,
+        }).eq("id", updated.id);
+        if (error) {
+          if (prevProd) setProds(prev => prev.map(p => p.id === updated.id ? prevProd : p));
+          toast("❌ Modification non sauvegardée, réessayez", "err");
+          console.error("products update:", error);
+        } else {
+          toast("✅ Produit modifié !");
+        }
+      } catch(e) {
+        if (prevProd) setProds(prev => prev.map(p => p.id === updated.id ? prevProd : p));
+        toast("❌ Erreur réseau", "err");
+      }
+      setSavingPr(false);
+    };
+
+    const deleteProduct = (prod) => {
+      setConfirm({
+        title: "🗑 Supprimer le produit",
+        msg: `Supprimer « ${prod.name} » ? Il disparaîtra aussi de votre boutique en ligne.`,
+        confirmLabel: "Supprimer",
+        danger: true,
+        onConfirm: async () => {
+          setProds(prev => prev.filter(p => p.id !== prod.id));
+          setConfirm(null);
+          try {
+            const s = await getSupa();
+            const { error } = await s.from("products").delete().eq("id", prod.id);
+            if (error) {
+              setProds(prev => [prod, ...prev]);
+              toast("❌ Suppression échouée, réessayez", "err");
+              console.error("products delete:", error);
+            } else {
+              toast("🗑 Produit supprimé", "warn");
+            }
+          } catch(e) {
+            setProds(prev => [prod, ...prev]);
+            toast("❌ Erreur réseau", "err");
+          }
+        },
+      });
+    };
+
+    const adjustStock = async () => {
+      if (!stockTarget) return;
+      const delta = parseInt(stockDelta, 10);
+      if (!delta) { toast("⚠️ Quantité invalide", "err"); return; }
+      setSavingPr(true);
+      const newQty = Math.max(0, (stockTarget.stock_qty || 0) + delta);
+      setProds(prev => prev.map(p => p.id === stockTarget.id ? { ...p, stock_qty: newQty } : p));
+      setMdlPr(null);
+      try {
+        const s = await getSupa();
+        const { error } = await s.from("products").update({ stock_qty: newQty }).eq("id", stockTarget.id);
+        if (!error) {
+          await s.from("stock_movements").insert({ id: xid(), user_id: uid, product_id: stockTarget.id, change: delta, reason: stockReason || "" });
+          toast(delta > 0 ? `✅ +${delta} ajouté au stock` : `✅ ${delta} retiré du stock`, "ok", T.gr);
+        } else {
+          toast("❌ Erreur mise à jour du stock", "err");
+          console.error("products stock update:", error);
+        }
+      } catch(e) { toast("❌ Erreur réseau", "err"); }
+      setStockTarget(null); setStockDelta(""); setStockReason("");
+      setSavingPr(false);
+    };
+
+    const stockBadge = (p) => {
+      if (p.stock_qty === null || p.stock_qty === undefined) return { lb: "Illimité", col: T.blue };
+      if (p.stock_qty <= 0) return { lb: "Rupture", col: T.red };
+      if (p.stock_qty <= (p.low_stock_threshold ?? 3)) return { lb: `${p.stock_qty} restants`, col: T.gold };
+      return { lb: `${p.stock_qty} en stock`, col: T.gr };
+    };
+
+    return (
+      <div style={{ animation: "slideUp .3s ease both" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16, flexWrap:"wrap", gap:8 }}>
+          <div>
+            <div style={{ fontWeight:900, fontSize:22, letterSpacing:"-.03em" }}>📦 Produits & Stock</div>
+            <div style={{ fontSize:11, color:T.sub2, marginTop:2 }}>
+              {prods.length} produit{prods.length!==1?"s":""} · {plan.maxProd===INF?"Illimité":`${prods.length}/${plan.maxProd} max (${plan.label})`}
+            </div>
+          </div>
+          <Btn ch="+ Ajouter un produit" onClick={() => { setFmPr({ active:true }); setMdlPr("add"); }}/>
+        </div>
+
+        {prods.some(p => p.stock_qty !== null && p.stock_qty <= (p.low_stock_threshold ?? 3)) && (
+          <div style={{ background:`${T.gold}0e`, border:`1px solid ${T.gold}33`, borderRadius:12, padding:"10px 14px", marginBottom:16, fontSize:12, color:T.gold, fontWeight:700, display:"flex", alignItems:"center", gap:8 }}>
+            ⚠️ Certains produits sont en stock faible ou en rupture
+          </div>
+        )}
+
+        {loadingPr ? (
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12 }}>
+            {[0,1,2].map(k=>{
+              const shimmer={ background:`linear-gradient(90deg,${T.c2} 25%,${T.c3} 50%,${T.c2} 75%)`, backgroundSize:"200% 100%", animation:"skeletonShimmer 1.4s ease infinite" };
+              return <div key={k} style={{ height:150, borderRadius:16, ...shimmer }}/>;
+            })}
+          </div>
+        ) : prods.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"3rem 1.5rem", background:T.c1, border:`1px solid ${T.border}`, borderRadius:20 }}>
+            <div style={{ fontSize:52, marginBottom:12 }}>📦</div>
+            <div style={{ fontWeight:800, fontSize:15, marginBottom:6 }}>Aucun produit</div>
+            <div style={{ fontSize:12, color:T.sub2, marginBottom:16, lineHeight:1.6 }}>Ajoutez vos produits pour suivre le stock et alimenter votre boutique en ligne.</div>
+            <Btn ch="+ Ajouter un produit" onClick={() => { setFmPr({ active:true }); setMdlPr("add"); }}/>
+          </div>
+        ) : (
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:12 }}>
+            {prods.map(p => {
+              const badge = stockBadge(p);
+              return (
+                <div key={p.id} style={{ background:`linear-gradient(135deg,${T.c1},${T.c2})`, border:`1px solid ${T.border}`, borderRadius:16, padding:"1rem", animation: flashId===p.id?"flashGreen .7s ease":"none", opacity:p.active?1:.55 }}>
+                  <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:8, marginBottom:8 }}>
+                    <div style={{ fontWeight:800, fontSize:13.5, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</div>
+                    {!p.active && <span style={{ fontSize:8, fontWeight:800, color:T.sub, background:T.c3, borderRadius:20, padding:"1px 7px", flexShrink:0 }}>Masqué</span>}
+                  </div>
+                  <div style={{ fontWeight:900, fontSize:16, color:accent, marginBottom:8 }}>{fmt(p.price)} <span style={{ fontSize:10, color:T.sub }}>FCFA</span></div>
+                  <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:9.5, fontWeight:800, color:badge.col, background:`${badge.col}18`, border:`1px solid ${badge.col}33`, borderRadius:20, padding:"2px 9px", marginBottom:12 }}>
+                    ● {badge.lb}
+                  </div>
+                  <div style={{ display:"flex", gap:6 }}>
+                    <button onClick={() => { setStockTarget(p); setMdlPr("stock"); }} disabled={p.stock_qty===null}
+                      style={{ flex:1, padding:"8px", borderRadius:9, border:`1px solid ${T.border}`, background:T.c2, color:p.stock_qty===null?T.sub:T.sub2, fontFamily:"inherit", fontWeight:700, fontSize:10.5, cursor:p.stock_qty===null?"not-allowed":"pointer" }}>
+                      🔁 Stock
+                    </button>
+                    <button onClick={() => { setFmPr({...p}); setMdlPr("edit"); }}
+                      style={{ flex:1, padding:"8px", borderRadius:9, border:`1px solid ${T.blue}33`, background:`${T.blue}10`, color:T.blue, fontFamily:"inherit", fontWeight:700, fontSize:10.5, cursor:"pointer" }}>
+                      ✏️
+                    </button>
+                    <button onClick={() => deleteProduct(p)}
+                      style={{ padding:"8px 10px", borderRadius:9, border:`1px solid rgba(255,34,85,.25)`, background:"rgba(255,34,85,.08)", color:T.red, fontFamily:"inherit", fontSize:10.5, cursor:"pointer" }}>
+                      🗑
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── MODAL : Ajouter / Modifier produit ── */}
+        <Modal open={mdlPr==="add"||mdlPr==="edit"} onClose={()=>{setMdlPr(null);setFmPr({});}}
+          title={mdlPr==="edit"?"✏️ Modifier le produit":"📦 Nouveau produit"}>
+          <FL l="Nom du produit *" ch={
+            <input style={IS} placeholder="Ex : Sac de riz 25kg" value={fmPr.name||""} onChange={ev=>setFmPr(f=>({...f,name:ev.target.value}))}/>
+          }/>
+          <FL l="Description (optionnel)" ch={
+            <textarea style={{...IS,minHeight:60,resize:"vertical"}} placeholder="Détails visibles dans la boutique…" value={fmPr.description||""} onChange={ev=>setFmPr(f=>({...f,description:ev.target.value}))}/>
+          }/>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            <FL l="Prix (FCFA) *" ch={
+              <input type="number" style={IS} placeholder="5000" value={fmPr.price??""} onChange={ev=>setFmPr(f=>({...f,price:ev.target.value}))}/>
+            }/>
+            <FL l="Catégorie" ch={
+              <input style={IS} placeholder="Alimentation…" value={fmPr.category||""} onChange={ev=>setFmPr(f=>({...f,category:ev.target.value}))}/>
+            }/>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+            <input type="checkbox" id="prUnlimited" checked={!!fmPr.unlimited || fmPr.stock_qty===null}
+              onChange={ev=>setFmPr(f=>({...f,unlimited:ev.target.checked}))}
+              style={{ width:16, height:16, accentColor:accent }}/>
+            <label htmlFor="prUnlimited" style={{ fontSize:11.5, color:T.sub2, cursor:"pointer" }}>Service / stock illimité (pas de suivi de quantité)</label>
+          </div>
+          {!fmPr.unlimited && (
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              <FL l="Quantité en stock" ch={
+                <input type="number" min="0" style={IS} placeholder="20" value={fmPr.stock_qty??""} onChange={ev=>setFmPr(f=>({...f,stock_qty:ev.target.value}))}/>
+              }/>
+              <FL l="Seuil stock faible" ch={
+                <input type="number" min="0" style={IS} placeholder="3" value={fmPr.low_stock_threshold??""} onChange={ev=>setFmPr(f=>({...f,low_stock_threshold:ev.target.value}))}/>
+              }/>
+            </div>
+          )}
+          <FL l="URL image (optionnel)" ch={
+            <input style={IS} placeholder="https://…" value={fmPr.image_url||""} onChange={ev=>setFmPr(f=>({...f,image_url:ev.target.value}))}/>
+          }/>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
+            <input type="checkbox" id="prActive" checked={fmPr.active!==false}
+              onChange={ev=>setFmPr(f=>({...f,active:ev.target.checked}))}
+              style={{ width:16, height:16, accentColor:accent }}/>
+            <label htmlFor="prActive" style={{ fontSize:11.5, color:T.sub2, cursor:"pointer" }}>Visible dans la boutique en ligne</label>
+          </div>
+          <div style={{ display:"flex", gap:7 }}>
+            <Btn dis={savingPr} ch={savingPr?"⏳…":mdlPr==="edit"?"✅ Modifier":"✅ Enregistrer"} full
+              onClick={mdlPr==="edit" ? updateProduct : addProduct}/>
+            <Btn v="g" ch={t("cancel")} onClick={()=>{setMdlPr(null);setFmPr({});}}/>
+          </div>
+        </Modal>
+
+        {/* ── MODAL : Ajuster le stock ── */}
+        <Modal open={mdlPr==="stock"} onClose={()=>{setMdlPr(null);setStockTarget(null);setStockDelta("");setStockReason("");}} title="🔁 Ajuster le stock">
+          {stockTarget && (
+            <>
+              <div style={{ background:T.c2, border:`1px solid ${T.border}`, borderRadius:12, padding:"12px 14px", marginBottom:16, textAlign:"center" }}>
+                <div style={{ fontWeight:800, fontSize:14, marginBottom:4 }}>{stockTarget.name}</div>
+                <div style={{ fontSize:12, color:T.sub2 }}>Stock actuel : <strong style={{ color:accent }}>{stockTarget.stock_qty}</strong></div>
+              </div>
+              <div style={{ display:"flex", gap:7, marginBottom:12 }}>
+                {[-5,-1,1,5,10].map(v => (
+                  <button key={v} onClick={()=>setStockDelta(String(v))}
+                    style={{ flex:1, padding:"9px 4px", borderRadius:9, border:`1px solid ${v<0?T.red:accent}44`, background:v<0?"rgba(255,34,85,.08)":`${accent}12`, color:v<0?T.red:accent, fontFamily:"inherit", fontWeight:800, fontSize:12, cursor:"pointer" }}>
+                    {v>0?`+${v}`:v}
+                  </button>
+                ))}
+              </div>
+              <FL l="Quantité (négatif pour retirer)" ch={
+                <input type="number" style={IS} placeholder="Ex : 10 ou -2" value={stockDelta} onChange={ev=>setStockDelta(ev.target.value)}/>
+              }/>
+              <FL l="Motif (optionnel)" ch={
+                <input style={IS} placeholder="Réassort, vente, casse…" value={stockReason} onChange={ev=>setStockReason(ev.target.value)}/>
+              }/>
+              <div style={{ display:"flex", gap:8, marginTop:6 }}>
+                <Btn full dis={savingPr} ch={savingPr?"⏳…":"✅ Valider"} onClick={adjustStock}/>
+                <Btn full v="g" ch={t("cancel")} onClick={()=>{setMdlPr(null);setStockTarget(null);setStockDelta("");setStockReason("");}}/>
+              </div>
+            </>
+          )}
+        </Modal>
+      </div>
+    );
+  };
+
+  // ══════════════════════════════════════════════════════════
+  //  MODULE BOUTIQUE EN LIGNE
+  //  - Réglages publics (Supabase : table "store_settings")
+  //  - Lien partageable /?boutique=slug (voir PublicStorePage)
+  //  - Publication réservée aux plans Pro & Business
+  // ══════════════════════════════════════════════════════════
+  const PgBoutique = () => {
+    const [store, setStoreS]       = useState(null);
+    const [loadingSt, setLoadingSt] = useState(true);
+    const [fmSt, setFmSt]          = useState({});
+    const [savingSt, setSavingSt]  = useState(false);
+    const [copied, setCopied]      = useState(false);
+    const [prodCount, setProdCount] = useState(0);
+
+    useEffect(() => {
+      (async () => {
+        setLoadingSt(true);
+        try {
+          const s = await getSupa();
+          const [{ data }, { count }] = await Promise.all([
+            s.from("store_settings").select("*").eq("user_id", uid).maybeSingle(),
+            s.from("products").select("id", { count: "exact", head: true }).eq("user_id", uid).eq("active", true),
+          ]);
+          if (data) { setStoreS(data); setFmSt(data); }
+          else {
+            const base = (ses.business || ses.name || "boutique")
+              .toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+              .replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 28) || "boutique";
+            setFmSt({ slug: `${base}-${uid.slice(0,4)}`, store_name: ses.business || ses.name || "", whatsapp_number: ses.phone || "", bio: "", banner_color: accent, published: false });
+          }
+          setProdCount(count || 0);
+        } catch(e) { console.error("store_settings load:", e); }
+        finally { setLoadingSt(false); }
+      })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [uid]);
+
+    const storeUrl = `${window.location.origin}/?boutique=${(store?.slug || fmSt.slug || "").trim()}`;
+
+    const saveStore = async (publish) => {
+      if (!fmSt.store_name?.trim()) { toast("⚠️ Le nom de la boutique est obligatoire", "err"); return; }
+      if (!fmSt.slug?.trim()) { toast("⚠️ Le lien de la boutique est obligatoire", "err"); return; }
+      if (publish && !plan.store) {
+        toast("🔒 La publication de la boutique nécessite le plan Pro ou Business", "warn");
+        setPage("plans");
+        return;
+      }
+      setSavingSt(true);
+      const cleanSlug = fmSt.slug.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/(^-|-$)/g, "");
+      const payload = {
+        user_id: uid, slug: cleanSlug, store_name: fmSt.store_name.trim(),
+        whatsapp_number: cleanP(fmSt.whatsapp_number || ""), bio: fmSt.bio || "",
+        banner_color: fmSt.banner_color || accent,
+        published: publish !== undefined ? publish : !!fmSt.published,
+        updated_at: new Date().toISOString(),
+      };
+      try {
+        const s = await getSupa();
+        const { data, error } = await s.from("store_settings").upsert(payload, { onConflict: "user_id" }).select().maybeSingle();
+        if (error) {
+          if (error.code === "23505") toast("❌ Ce lien est déjà pris, choisissez-en un autre", "err");
+          else { toast("❌ Erreur sauvegarde, réessayez", "err"); console.error("store_settings upsert:", error); }
+        } else {
+          setStoreS(data); setFmSt(data);
+          markUserActive(uid);
+          toast(payload.published ? "🛍️ Boutique publiée !" : "✅ Boutique enregistrée");
+        }
+      } catch(e) { toast("❌ Erreur réseau", "err"); }
+      setSavingSt(false);
+    };
+
+    const copyLink = async () => {
+      try { await navigator.clipboard.writeText(storeUrl); setCopied(true); toast("🔗 Lien copié !"); setTimeout(()=>setCopied(false), 2000); }
+      catch(e) { toast("❌ Impossible de copier, copiez manuellement", "err"); }
+    };
+
+    if (loadingSt) {
+      return <div style={{ display:"flex", justifyContent:"center", padding:"3rem" }}>
+        <div style={{ width:40, height:40, border:`3px solid ${T.c3}`, borderTop:`3px solid ${accent}`, borderRadius:"50%", animation:"spin .75s linear infinite" }}/>
+      </div>;
+    }
+
+    return (
+      <div style={{ animation:"slideUp .3s ease both" }}>
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontWeight:900, fontSize:22, letterSpacing:"-.03em" }}>🛍️ Ma Boutique</div>
+          <div style={{ fontSize:11, color:T.sub2, marginTop:2 }}>Un lien unique à partager sur WhatsApp, Instagram ou Facebook</div>
+        </div>
+
+        {!plan.store && (
+          <div style={{ background:`${T.gold}0e`, border:`1px solid ${T.gold}33`, borderRadius:12, padding:"12px 14px", marginBottom:16, fontSize:12, color:T.sub2, display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:20 }}>🔒</span>
+            <div style={{ flex:1 }}>Publier votre boutique en ligne est réservé aux plans <strong style={{ color:T.gold }}>Pro</strong> et <strong style={{ color:T.gold }}>Business</strong>. Vous pouvez déjà préparer vos réglages.</div>
+            <Btn sm v="gold" ch="Débloquer" onClick={()=>setPage("plans")}/>
+          </div>
+        )}
+
+        {store?.published && (
+          <div style={{ background:`linear-gradient(135deg,${accent}14,${T.teal}0a)`, border:`1px solid ${accent}33`, borderRadius:14, padding:"14px 16px", marginBottom:18 }}>
+            <div style={{ fontSize:10, fontWeight:800, textTransform:"uppercase", letterSpacing:".06em", color:accent, marginBottom:8 }}>🟢 Boutique en ligne</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+              <div style={{ flex:1, minWidth:180, background:T.c2, border:`1px solid ${T.border}`, borderRadius:9, padding:"9px 12px", fontSize:12, color:T.sub2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{storeUrl}</div>
+              <Btn sm v="g" ch={copied?"✅ Copié":"📋 Copier"} onClick={copyLink}/>
+              <a href={`https://wa.me/?text=${encodeURIComponent("Découvrez ma boutique en ligne : "+storeUrl)}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration:"none" }}>
+                <Btn sm v="wa" ch="💬 Partager"/>
+              </a>
+            </div>
+            <div style={{ fontSize:11, color:T.sub2, marginTop:8 }}>{prodCount} produit{prodCount!==1?"s":""} actif{prodCount!==1?"s":""} visible{prodCount!==1?"s":""} · <span onClick={()=>setPage("produits")} style={{ color:accent, cursor:"pointer", fontWeight:700 }}>Gérer mes produits →</span></div>
+          </div>
+        )}
+
+        <div style={{ background:T.c1, border:`1px solid ${T.border}`, borderRadius:18, padding:"1.2rem" }}>
+          <FL l="Nom de la boutique *" ch={
+            <input style={IS} placeholder="Ex : Chez Fatou" value={fmSt.store_name||""} onChange={ev=>setFmSt(f=>({...f,store_name:ev.target.value}))}/>
+          }/>
+          <FL l="Lien de la boutique *" ch={
+            <div style={{ display:"flex", alignItems:"center", gap:0 }}>
+              <span style={{ fontSize:11, color:T.sub, background:T.c3, border:`1px solid ${T.border}`, borderRight:"none", borderRadius:"11px 0 0 11px", padding:"11px 10px", whiteSpace:"nowrap" }}>?boutique=</span>
+              <input style={{...IS,borderRadius:"0 11px 11px 0",marginTop:0}} placeholder="chez-fatou" value={fmSt.slug||""} onChange={ev=>setFmSt(f=>({...f,slug:ev.target.value}))}/>
+            </div>
+          } hint="Uniquement lettres, chiffres et tirets"/>
+          <FL l="Numéro WhatsApp pour les commandes" ch={
+            <input type="tel" style={IS} placeholder="+225 07 000 0000" value={fmSt.whatsapp_number||""} onChange={ev=>setFmSt(f=>({...f,whatsapp_number:ev.target.value}))}/>
+          }/>
+          <FL l="Description courte (optionnel)" ch={
+            <textarea style={{...IS,minHeight:60,resize:"vertical"}} placeholder="Ce que vous vendez, vos horaires, votre localisation…" value={fmSt.bio||""} onChange={ev=>setFmSt(f=>({...f,bio:ev.target.value}))}/>
+          }/>
+          <FL l="Couleur de la bannière">
+            <div style={{ display:"flex", gap:8, marginTop:5 }}>
+              {[accent,T.blue,T.gold,T.orange,T.purple,"#25D366"].map(c=>(
+                <button key={c} onClick={()=>setFmSt(f=>({...f,banner_color:c}))} style={{ width:28, height:28, borderRadius:9, background:c, border:fmSt.banner_color===c?`2px solid ${T.text}`:"2px solid transparent", cursor:"pointer" }}/>
+              ))}
+            </div>
+          </FL>
+          <div style={{ display:"flex", gap:7, marginTop:14 }}>
+            <Btn dis={savingSt} ch={savingSt?"⏳…":"✅ Enregistrer"} onClick={()=>saveStore(store?.published)}/>
+            {store?.published ? (
+              <Btn v="g" ch="⏸️ Dépublier" dis={savingSt} onClick={()=>saveStore(false)}/>
+            ) : (
+              <Btn v="gold" ch="🚀 Publier la boutique" dis={savingSt} onClick={()=>saveStore(true)}/>
+            )}
+          </div>
+        </div>
       </div>
     );
   };
@@ -6019,6 +6715,8 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     {id:"inv",   ic:"🧾",lb:t("navInv").replace("🧾 ","")},
     {id:"cli",   ic:"👥",lb:t("navCli").replace("👥 ","")},
     {id:"emp",   ic:"👷",lb:"Employés"},
+    {id:"produits",ic:"📦",lb:"Produits"},
+    {id:"boutique",ic:"🛍️",lb:"Boutique"},
     {id:"carte", ic:"📇",lb:t("navCarte").replace("📇 ","")},
     {id:"logo",  ic:"🎨",lb:t("navLogo").replace("🎨 ","")},
     {id:"reseau",ic:"🗺️",lb:t("navReseau").replace("🗺️ ","")},
@@ -7172,7 +7870,124 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
   // seules les props changent, jamais l'identité du composant.
   // Rendu dynamique, les pages lisent txs/clis/invs depuis la closure
   // et se re-rendent à chaque changement de state. C'est le comportement correct.
+  // ══════════════════════════════════════════════════════════
+  //  MODE STAFF, vue restreinte pour un employé avec accès PIN
+  //  Pas de nouveau compte Supabase Auth : reste dans la session
+  //  du propriétaire, mais masque finances / réglages / équipe.
+  // ══════════════════════════════════════════════════════════
+  const StaffConsole = () => {
+    const [staffTab, setStaffTab] = useState("vente");
+    const TABS = [
+      { id:"vente",    ic:"💰", lb:"Vente rapide" },
+      { id:"produits", ic:"📦", lb:"Stock" },
+      { id:"cli",      ic:"👥", lb:"Clients" },
+      { id:"inv",      ic:"🧾", lb:"Factures" },
+    ];
+    return (
+      <div style={{ maxWidth:900, margin:"0 auto" }}>
+        <div style={{ display:"flex", gap:8, marginBottom:18, overflowX:"auto", paddingBottom:2 }}>
+          {TABS.map(tItem => (
+            <button key={tItem.id} onClick={() => setStaffTab(tItem.id)}
+              style={{ flexShrink:0, display:"flex", alignItems:"center", gap:6, padding:"9px 16px", borderRadius:11, border:`1px solid ${staffTab===tItem.id?accent:T.border}`, background:staffTab===tItem.id?`${accent}15`:T.c1, color:staffTab===tItem.id?accent:T.sub2, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+              {tItem.ic} {tItem.lb}
+            </button>
+          ))}
+        </div>
+        {staffTab==="vente" && (
+          <div style={{ textAlign:"center", padding:"3rem 1rem", background:T.c1, border:`1px solid ${T.border}`, borderRadius:20 }}>
+            <div style={{ fontSize:56, marginBottom:16 }}>💰</div>
+            <div style={{ fontWeight:800, fontSize:17, marginBottom:8 }}>Enregistrer une vente</div>
+            <div style={{ fontSize:12, color:T.sub2, marginBottom:22, maxWidth:340, margin:"0 auto 22px" }}>La facture est générée automatiquement et le client est mis à jour.</div>
+            <Btn ch="+ Nouvelle vente" onClick={() => { setFm({ type:"sale", date:today() }); setMdl("tx"); }}/>
+          </div>
+        )}
+        {staffTab==="produits" && <PgProduits/>}
+        {staffTab==="cli"      && <PgCli/>}
+        {staffTab==="inv"      && <PgInv/>}
+      </div>
+    );
+  };
+
+  // ── Portail d'entrée en Mode Staff : choix de l'employé + code PIN ──
+  const StaffGateModal = () => {
+    const [gateEmps, setGateEmps]   = useState([]);
+    const [gateLoading, setGateLoading] = useState(false);
+    const [gateSel, setGateSel]     = useState(null);
+    const [gatePin, setGatePin]     = useState("");
+    const [gateErr, setGateErr]     = useState("");
+
+    useEffect(() => {
+      if (!staffGateOpen) return;
+      setGateSel(null); setGatePin(""); setGateErr("");
+      (async () => {
+        setGateLoading(true);
+        try {
+          const s = await getSupa();
+          const { data, error } = await s.from("employees").select("id,name,role,access_pin").eq("user_id", uid).eq("has_access", true);
+          if (!error) setGateEmps(data || []);
+        } catch(e) { console.error("staff gate load:", e); }
+        finally { setGateLoading(false); }
+      })();
+    }, [staffGateOpen]);
+
+    const enterStaffMode = () => {
+      if (!gateSel) { setGateErr("Choisissez une personne"); return; }
+      if (gatePin.trim() !== (gateSel.access_pin || "")) { setGateErr("Code PIN incorrect"); return; }
+      setStaffMode({ id: gateSel.id, name: gateSel.name, role: gateSel.role });
+      setStaffGateOpen(false);
+      toast(`🔀 Mode Staff activé pour ${gateSel.name}`);
+    };
+
+    return (
+      <Modal open={staffGateOpen} onClose={()=>setStaffGateOpen(false)} title="🔀 Passer en Mode Staff">
+        <div style={{ fontSize:12, color:T.sub2, marginBottom:16, lineHeight:1.6 }}>
+          Donnez l'appareil à un membre de l'équipe. Il ne verra que la vente rapide, le stock et les clients, pas vos finances complètes.
+        </div>
+        {gateLoading ? (
+          <div style={{ textAlign:"center", padding:"2rem" }}>
+            <div style={{ width:32, height:32, border:`3px solid ${T.c3}`, borderTop:`3px solid ${T.purple}`, borderRadius:"50%", animation:"spin .75s linear infinite", margin:"0 auto" }}/>
+          </div>
+        ) : gateEmps.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"1.2rem 0.5rem", color:T.sub2, fontSize:12, lineHeight:1.6 }}>
+            Aucun employé n'a l'accès Mode Staff activé. Activez-le depuis{" "}
+            <span style={{ color:accent, cursor:"pointer", fontWeight:700 }} onClick={()=>{ setStaffGateOpen(false); setPage("emp"); }}>la page Employés →</span>
+          </div>
+        ) : (
+          <>
+            <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
+              {gateEmps.map(e => (
+                <button key={e.id} type="button" onClick={()=>{ setGateSel(e); setGateErr(""); }}
+                  style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:11, border:`1px solid ${gateSel?.id===e.id?T.purple:T.border}`, background:gateSel?.id===e.id?`${T.purple}12`:T.c2, cursor:"pointer", fontFamily:"inherit", textAlign:"left" }}>
+                  <div style={{ width:32, height:32, borderRadius:9, background:`linear-gradient(135deg,${T.purple},${T.blue})`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:12, color:"#fff", flexShrink:0 }}>
+                    {e.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:700, fontSize:12.5, color:T.text }}>{e.name}</div>
+                    {e.role && <div style={{ fontSize:10, color:T.sub2 }}>{e.role}</div>}
+                  </div>
+                </button>
+              ))}
+            </div>
+            {gateSel && (
+              <FL l="Code PIN" ch={
+                <input type="password" inputMode="numeric" maxLength={4} autoFocus
+                  style={{ ...IS, textAlign:"center", fontSize:22, letterSpacing:".3em", fontWeight:900 }}
+                  placeholder="····" value={gatePin}
+                  onChange={ev=>{ setGatePin(ev.target.value.replace(/\D/g,"").slice(0,4)); setGateErr(""); }}
+                  onKeyDown={ev=>{ if(ev.key==="Enter") enterStaffMode(); }}/>
+              } err={gateErr}/>
+            )}
+            <Btn full ch="🔀 Entrer en Mode Staff" dis={!gateSel||gatePin.length<4} onClick={enterStaffMode}/>
+          </>
+        )}
+      </Modal>
+    );
+  };
+
   const renderActivePage = () => {
+    if(staffMode){
+      return <StaffConsole/>;
+    }
     // ── Guard abonnement, bloquer les pages premium si expiré ──
     // Admin = toujours accès total
     if(!isAdmin && !subLoading && isPremiumPage(page) && !isSubActive){
@@ -7183,6 +7998,8 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       case "inv":    return <PgInv/>;
       case "cli":    return <PgCli/>;
       case "emp":    return <PgEmployees/>;
+      case "produits": return <PgProduits/>;
+      case "boutique": return <PgBoutique/>;
       case "stats":  return <PgStats/>;
       case "coach":  return <CoachIA ses={ses} accent={accent} clis={clis} invs={invs} sales={sales} exps={exps} profit={profit} gPct={gPct} goal={goal} setPage={setPage} plan={activePlan}/>;
       case "plans":  return <PgPlans/>;
@@ -7265,15 +8082,28 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
           <span style={{background:PLANS[activePlan].col,color:T.ink,fontSize:7,fontWeight:800,borderRadius:20,padding:"2px 6px",marginLeft:2}}>{PLANS[activePlan].label.toUpperCase()}</span>
           {isAdmin&&<span style={{background:"#9060ff",color:"#fff",fontSize:7,fontWeight:800,borderRadius:20,padding:"2px 6px",marginLeft:2,letterSpacing:".04em"}}>ADMIN</span>}
         </div>
-        <div className="desktop-nav" style={{gap:1,overflowX:"auto",padding:"0 6px",scrollbarWidth:"none"}}>
-          {NAV.map(n=><TabBtn key={n.id} {...n}/>)}
-        </div>
+        {staffMode ? (
+          <div style={{display:"flex",alignItems:"center",gap:10,background:`${T.purple}12`,border:`1px solid ${T.purple}33`,borderRadius:20,padding:"5px 8px 5px 14px"}}>
+            <span style={{fontSize:11,fontWeight:800,color:T.purple}}>🔀 Mode Staff · {staffMode.name}</span>
+            <button onClick={()=>setStaffMode(null)} style={{background:T.purple,border:"none",borderRadius:16,color:"#fff",padding:"4px 12px",fontWeight:800,fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>Quitter</button>
+          </div>
+        ) : (
+          <div className="desktop-nav" style={{gap:1,overflowX:"auto",padding:"0 6px",scrollbarWidth:"none"}}>
+            {NAV.map(n=><TabBtn key={n.id} {...n}/>)}
+          </div>
+        )}
         <div style={{display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
           {/* Raccourci plan Free, les limites réelles s'affichent sur chaque page (clients/factures/transactions) */}
           {!isAdmin&&!isSubActive&&(
             <button onClick={()=>setPage("plans")} title="Voir les plans"
               style={{background:"none",border:`1px solid ${T.border}`,borderRadius:20,padding:"3px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:5,color:T.sub,fontSize:10,fontWeight:700,flexShrink:0}}>
               🌱 Free
+            </button>
+          )}
+          {plan.roles&&!isAdmin&&(
+            <button onClick={()=>setStaffGateOpen(true)} title="Passer en Mode Staff"
+              style={{background:"none",border:`1px solid ${T.purple}33`,borderRadius:20,padding:"3px 9px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,color:T.purple,fontSize:10,fontWeight:700,flexShrink:0}}>
+              🔀 Staff
             </button>
           )}
           <div style={{position:"relative"}}>
@@ -7305,6 +8135,22 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
               <div style={{fontSize:11,color:"#ff6680",marginTop:2}}>Allez dans Compte → Diagnostic Supabase → collez votre anon key (eyJ...) depuis Supabase Dashboard → Settings → API</div>
             </div>
             <button onClick={()=>setPage("prefs")} style={{background:"#ff2255",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontFamily:"inherit",fontWeight:800,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>Corriger maintenant</button>
+          </div>
+        )}
+        {/* BANNIÈRE INSTALLATION PWA, transforme VierAfrik en vraie appli téléphone/tablette */}
+        {showInstallBar&&!staffMode&&(
+          <div style={{background:`linear-gradient(135deg,${accent}18,${T.teal}0c)`,borderBottom:`1px solid ${accent}33`,padding:"10px 16px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{fontSize:18,flexShrink:0}}>📲</span>
+            <div style={{flex:1,minWidth:180}}>
+              <div style={{fontWeight:800,fontSize:12,color:T.text}}>Installez VierAfrik comme une vraie application</div>
+              <div style={{fontSize:10.5,color:T.sub2,marginTop:1}}>
+                {isIosInstall ? "Appuyez sur Partager 􀈂 puis « Sur l'écran d'accueil »" : "Accès direct depuis votre écran d'accueil, sans navigateur"}
+              </div>
+            </div>
+            {!isIosInstall&&(
+              <button onClick={runInstallPrompt} style={{background:accent,color:T.ink,border:"none",borderRadius:9,padding:"7px 14px",fontFamily:"inherit",fontWeight:800,fontSize:11,cursor:"pointer",flexShrink:0}}>Installer</button>
+            )}
+            <button onClick={dismissInstallBar} style={{background:"none",border:"none",color:T.sub,fontSize:13,cursor:"pointer",padding:4,flexShrink:0}}>✕</button>
           </div>
         )}
         <div style={{padding:"1.2rem",maxWidth:1340,margin:"0 auto"}}>
@@ -7380,17 +8226,21 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
       )}
 
       {/* BARRE NAV BAS, MOBILE UNIQUEMENT */}
-      <nav className="mobile-nav" style={{position:"fixed",bottom:0,left:0,right:0,zIndex:400,height:58,alignItems:"center",justifyContent:"space-around",background:"rgba(1,3,6,.97)",backdropFilter:"blur(20px)",borderTop:`1px solid ${T.border}`,padding:"0 2px"}}>
-        {NAV_BOTTOM.map(n=>(
-          <button key={n.id} onClick={()=>{if(n.id==="pay_mm"){setFm({_mm:true});setMdl("mm");}else setPage(n.id);}} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:1,background:"none",border:"none",cursor:"pointer",padding:"5px 1px",minWidth:0,flex:1,transition:"opacity .15s",overflow:"hidden"}}>
-            <span style={{fontSize:15,lineHeight:1}}>{n.ic}</span>
-            <span style={{fontSize:6,color:page===n.id?accent:T.sub,fontWeight:700,whiteSpace:"nowrap",marginTop:1,letterSpacing:"-.01em"}}>{n.lb}</span>
-            {page===n.id&&<div style={{width:14,height:2,borderRadius:1,background:accent,marginTop:1}}/>}
-          </button>
-        ))}
-      </nav>
+      {!staffMode && (
+        <nav className="mobile-nav" style={{position:"fixed",bottom:0,left:0,right:0,zIndex:400,height:58,alignItems:"center",justifyContent:"space-around",background:"rgba(1,3,6,.97)",backdropFilter:"blur(20px)",borderTop:`1px solid ${T.border}`,padding:"0 2px"}}>
+          {NAV_BOTTOM.map(n=>(
+            <button key={n.id} onClick={()=>{if(n.id==="pay_mm"){setFm({_mm:true});setMdl("mm");}else setPage(n.id);}} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:1,background:"none",border:"none",cursor:"pointer",padding:"5px 1px",minWidth:0,flex:1,transition:"opacity .15s",overflow:"hidden"}}>
+              <span style={{fontSize:15,lineHeight:1}}>{n.ic}</span>
+              <span style={{fontSize:6,color:page===n.id?accent:T.sub,fontWeight:700,whiteSpace:"nowrap",marginTop:1,letterSpacing:"-.01em"}}>{n.lb}</span>
+              {page===n.id&&<div style={{width:14,height:2,borderRadius:1,background:accent,marginTop:1}}/>}
+            </button>
+          ))}
+        </nav>
+      )}
 
       {/* ════ MODALS ════ */}
+
+      <StaffGateModal/>
 
       {/* Transaction */}
       <Modal open={mdl==="tx"} onClose={()=>{setMdl(null);setFm({});}} title={fm._edit?t("editTx"):fm.type==="expense"?t("newExpense"):t("newSale")}>
