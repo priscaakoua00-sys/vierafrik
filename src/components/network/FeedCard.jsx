@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { FEED_CATEGORY_IMAGES } from "../../data/networkCategories.js";
 
+// Vrai logo WhatsApp (SVG), remplace l'émoji 💬 ambigu sur l'action WhatsApp.
+const WhatsAppIcon = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M12.001 2C6.478 2 2 6.477 2 12c0 1.79.469 3.53 1.36 5.062L2.02 22l5.062-1.328A9.958 9.958 0 0012 22c5.523 0 10-4.477 10-10S17.524 2 12.001 2zm5.507 14.144c-.229.646-1.34 1.234-1.848 1.31-.472.07-1.06.1-1.71-.108-.394-.126-.9-.294-1.55-.575-2.728-1.178-4.508-3.92-4.645-4.102-.137-.183-1.11-1.475-1.11-2.814 0-1.338.7-1.994.949-2.267.248-.274.542-.342.722-.342.18 0 .361.002.518.01.166.008.39-.063.61.465.229.548.777 1.892.845 2.03.069.137.114.297.023.48-.09.183-.137.297-.271.457-.137.16-.286.357-.408.48-.137.137-.28.286-.12.56.16.274.712 1.174 1.528 1.9 1.05.936 1.936 1.226 2.209 1.363.274.137.434.115.594-.069.16-.183.686-.8.869-1.075.183-.274.366-.229.617-.137.252.091 1.593.751 1.867.888.275.137.457.206.526.32.069.114.069.663-.16 1.309z"/>
+  </svg>
+);
+
 // ══════════════════════════════════════════════════════════════
 //  FeedCard, carte profil du Réseau visuel
 //  Défini hors de NetworkFeed pour éviter le re-mount React.
@@ -110,17 +117,17 @@ export default function FeedCard({
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:6, marginBottom:11 }}>
               {[
                 { ic:"📞", label:"Appeler",  col:Tc.gr,    fn:()=>doCall(c.phone) },
-                { ic:"💬", label:"WhatsApp", col:"#25D366", fn:()=>doWA(c.phone,c.business||c.nom,c.activite) },
+                { icon:<WhatsAppIcon size={19}/>, label:"WhatsApp", col:"#25D366", fn:()=>doWA(c.phone,c.business||c.nom,c.activite) },
                 { ic:"➕", label:"Client",   col:Tc.blue,   fn:()=>onAddClient?.({name:c.business||c.nom||"",phone:c.phone||"",cat:c.activite||"Commerce",status:"active"}) },
                 { ic:"🧾", label:"Facture",  col:Tc.gold,   fn:()=>onCreateInvoice?.({clientName:c.business||c.nom||"",phone:c.phone||""}) },
               ].map(b=>(
                 <button key={b.label} onClick={b.fn} style={{
-                  padding:"8px 4px", borderRadius:10, border:`1px solid ${b.col}44`,
+                  padding:"11px 4px", borderRadius:10, border:`1px solid ${b.col}44`,
                   background:`${b.col}15`, color:b.col, cursor:"pointer",
-                  fontFamily:"inherit", fontWeight:700, fontSize:9,
-                  display:"flex", flexDirection:"column", alignItems:"center", gap:3,
+                  fontFamily:"inherit", fontWeight:700, fontSize:10.5,
+                  display:"flex", flexDirection:"column", alignItems:"center", gap:4,
                 }}>
-                  <span style={{ fontSize:16 }}>{b.ic}</span>
+                  <span style={{ fontSize:18, display:"flex" }}>{b.icon || b.ic}</span>
                   <span>{b.label}</span>
                 </button>
               ))}
