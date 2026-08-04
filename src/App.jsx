@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import { COUNTRIES, getCitiesForCountry, normalizeLegacyCountry, countryLabel } from "./data/locations.js";
 import LocationPicker from "./components/LocationPicker.jsx";
@@ -468,7 +469,13 @@ const cleanP=p=>(p||"").replace(/\D/g,"");
 
 function ConfirmModal({open,onClose,onConfirm,title,msg,confirmLabel="Confirmer",danger=false}){
   if(!open)return null;
-  return(
+  // Portail vers document.body : une modale position:fixed rendue à l'intérieur
+  // d'une page dont le conteneur est animé (animation:"slideUp…", très courant
+  // dans cette app) reste piégée dans la boîte de cet ancêtre au lieu de couvrir
+  // tout l'écran — un ancêtre avec un transform actif (même via une animation
+  // CSS terminée) redéfinit le "containing block" des descendants position:fixed.
+  // Le portail contourne totalement le problème en sortant du DOM de la page.
+  return createPortal((
     <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.9)",zIndex:950,display:"flex",alignItems:"flex-start",justifyContent:"center",backdropFilter:"blur(12px)",padding:"12px",overflowY:"auto"}}>
       <div style={{background:T.c1,border:`1px solid ${danger?"rgba(255,34,85,.3)":T.border}`,borderRadius:18,padding:"1.6rem",width:"90%",maxWidth:380,margin:"10vh auto",color:T.text,boxShadow:"0 40px 100px rgba(0,0,0,.9)",animation:"pop .2s cubic-bezier(.34,1.56,.64,1)"}}>
         <div style={{fontWeight:900,fontSize:17,marginBottom:10}}>{title}</div>
@@ -479,7 +486,7 @@ function ConfirmModal({open,onClose,onConfirm,title,msg,confirmLabel="Confirmer"
         </div>
       </div>
     </div>
-  );
+  ), document.body);
 }
 
 async function seed(uid){
@@ -689,7 +696,12 @@ function Btn({ch,onClick,v="p",sm,full,dis,sx={}}){
 function Modal({open,onClose,title,ch,wide,children}){
   // ch (prop legacy) a priorité sur children, ne pas passer les deux simultanément
   if(!open)return null;
-  return(
+  // Portail vers document.body, voir le commentaire équivalent dans ConfirmModal :
+  // sans ça, une modale ouverte depuis une page dont le conteneur est animé
+  // (animation:"slideUp…") reste piégée dans la boîte de cet ancêtre au lieu
+  // de couvrir tout l'écran, exactement le bug "ça reste en haut, tout le bas
+  // de l'écran est noir" remonté sur le formulaire Produits.
+  return createPortal((
     <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",zIndex:900,display:"flex",alignItems:"flex-start",justifyContent:"center",backdropFilter:"blur(16px)",padding:"12px",overflowY:"auto"}}>
       <div style={{background:`linear-gradient(160deg,${T.c1},${T.c2})`,border:`1px solid rgba(0,210,120,.2)`,borderRadius:24,padding:"1.8rem",width:"100%",maxWidth:wide?740:500,position:"relative",margin:"5vh auto",color:T.text,boxShadow:"0 40px 120px rgba(0,0,0,.95)",animation:"pop .28s cubic-bezier(.34,1.56,.64,1)"}}>
         <button onClick={onClose} style={{position:"absolute",top:16,right:16,background:T.c3,border:`1px solid ${T.border}`,color:T.sub2,width:30,height:30,borderRadius:"50%",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .18s"}}>✕</button>
@@ -697,7 +709,7 @@ function Modal({open,onClose,title,ch,wide,children}){
         {ch !== undefined ? ch : children}
       </div>
     </div>
-  );
+  ), document.body);
 }
 function Toast({t}){
   // Progress bar animée sur 3.2s (légèrement moins que le timeout de 3500ms)
