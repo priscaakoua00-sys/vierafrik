@@ -5893,6 +5893,18 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
                       🗑
                     </button>
                   </div>
+
+                  {/* Reçu du dernier paiement : visible directement sur la carte, pas caché dans un menu */}
+                  {lp && (
+                    <div style={{ display:"flex", gap:5, marginTop:7 }}>
+                      <button onClick={()=>genEmpPDF(emp.name, lp.amount, lp.currency, lp.date, (lp.id||"").toString().replace(/-/g,"").slice(0,8).toUpperCase())}
+                        style={{ flex:1, background:`${T.blue}10`, border:"none", color:T.blue, borderRadius:8, padding:"7px", cursor:"pointer", fontSize:10, fontWeight:700 }}>📄 PDF reçu</button>
+                      <button onClick={()=>sendEmpWA(emp.name, lp.amount, lp.currency, lp.date, (lp.id||"").toString().replace(/-/g,"").slice(0,8).toUpperCase(), emp.phone)}
+                        style={{ flex:1, background:"rgba(37,211,102,.1)", border:"1px solid rgba(37,211,102,.25)", color:"#25D366", borderRadius:8, padding:"7px", cursor:"pointer", fontSize:10, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}><WhatsAppIcon size={12}/> WhatsApp</button>
+                      <button onClick={()=>mailEmpReceipt(emp.name, lp.amount, lp.currency, lp.date, (lp.id||"").toString().replace(/-/g,"").slice(0,8).toUpperCase())}
+                        style={{ flex:1, background:`${T.gold}10`, border:"none", color:T.gold, borderRadius:8, padding:"7px", cursor:"pointer", fontSize:10, fontWeight:700 }}>✉️ Mail</button>
+                    </div>
+                  )}
                 </div>
               );
             })}
