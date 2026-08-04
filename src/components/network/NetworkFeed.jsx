@@ -127,7 +127,7 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
   const [ratingMap,   setRatingMap]   = useState({});   // id → note locale
   const [myProfile,   setMyProfile]   = useState(null);
   const [editOpen,    setEditOpen]    = useState(false);
-  const [editForm,    setEditForm]    = useState({ activite:"", ville:"", pays:normalizeLegacyCountry(user?.country)||"CI", visible:true, phone:"", image_url:"", category:"" });
+  const [editForm,    setEditForm]    = useState({ activite:"", ville:"", pays:normalizeLegacyCountry(user?.country)||"CI", visible:true, phone:"", image_url:"", category:"", description:"" });
   const [saving,      setSaving]      = useState(false);
   const [previewImg,  setPreviewImg]  = useState(null);
   const [uploadingImg, setUploadingImg] = useState(false);
@@ -153,7 +153,7 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
       });
       setPosts(sorted);
       const moi = sorted.find(c => c.id === user?.id);
-      if (moi) { setMyProfile(moi); setEditForm({ activite:moi.activite||"", ville:moi.ville||"", pays:normalizeLegacyCountry(moi.pays)||"CI", visible:moi.visible!==false, phone:moi.phone||"", image_url:moi.image_url||"", category:moi.category||"" }); }
+      if (moi) { setMyProfile(moi); setEditForm({ activite:moi.activite||"", ville:moi.ville||"", pays:normalizeLegacyCountry(moi.pays)||"CI", visible:moi.visible!==false, phone:moi.phone||"", image_url:moi.image_url||"", category:moi.category||"", description:moi.description||"" }); }
     } catch(e) { setPosts([]); }
     finally { setLoading(false); }
   }, [filterCat, filterPays, filterVille]);
@@ -172,6 +172,7 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
         pays:editForm.pays||normalizeLegacyCountry(user?.country)||"CI",
         visible:editForm.visible, phone:editForm.phone||"",
         image_url:previewImg||editForm.image_url||"", category:editForm.category||"",
+        description:editForm.description||"",
         plan, is_verified: isBusiness,
       };
       if (myProfile) { await s.from("commercants_profils").update(row).eq("id",user?.id); }
@@ -286,6 +287,10 @@ export default function NetworkFeed({ user, supabase, accent="#00d478", toast, p
             <div style={{ marginBottom:10 }}>
               <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Activité *</label>
               <input style={IS2} placeholder="Coiffure, Épicerie…" value={editForm.activite} onChange={e=>setEditForm(f=>({...f,activite:e.target.value}))}/>
+            </div>
+            <div style={{ marginBottom:10 }}>
+              <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>À propos (ce que vous faites, pourquoi vous contacter)</label>
+              <textarea style={{...IS2, minHeight:70, resize:"vertical"}} maxLength={280} placeholder="Ex : Je fabrique des meubles sur mesure depuis 8 ans, livraison partout à Abidjan…" value={editForm.description} onChange={e=>setEditForm(f=>({...f,description:e.target.value}))}/>
             </div>
             <div style={{ marginBottom:10 }}>
               <label style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", color:Tc.sub, display:"block", marginBottom:2 }}>Localisation</label>

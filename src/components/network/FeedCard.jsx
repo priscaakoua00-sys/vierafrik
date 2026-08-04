@@ -81,6 +81,11 @@ export default function FeedCard({
 
       {/* ── INFOS + ACTIONS ── */}
       <div style={{ padding:"13px 15px", display:"flex", flexDirection:"column", flex:1 }}>
+        {c.description && (
+          <div style={{ fontSize:11.5, color:Tc.sub2, lineHeight:1.5, marginBottom:11, overflow:"hidden", display:"-webkit-box", WebkitLineClamp:3, WebkitBoxOrient:"vertical" }}>
+            {c.description}
+          </div>
+        )}
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:11 }}>
           <div style={{ display:"flex", gap:2 }}>
             {[1,2,3,4,5].map(n=>(
