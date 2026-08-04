@@ -629,6 +629,46 @@ async function seedModuleExamplesV3(uid){
   } catch(e) { console.warn("[seedModuleExamplesV3] appointments:", e); }
 }
 
+// ── Deux produits d'exemple supplémentaires, pour qu'une boutique publiée
+//  montre plusieurs produits dès le départ (un seul, ça n'inspire pas) —
+//  variété volontaire produit physique + service (stock illimité), pour
+//  parler à un commerce comme à un salon de coiffure. ──
+async function seedModuleExamplesV4(uid){
+  try {
+    const s0 = await getSupa();
+    const { data: { user } } = await s0.auth.getUser();
+    if (user?.user_metadata?.seeded_examples_v4) return;
+    await s0.auth.updateUser({ data: { seeded_examples_v4: true } });
+  } catch(_e) { return; }
+
+  try {
+    const s = await getSupa();
+    await s.from("products").insert({
+      id: xid(), user_id: uid,
+      name: "Huile végétale 5L (exemple)",
+      description: "Ceci est un produit d'exemple pour vous montrer comment ça marche. Modifiez-le ou supprimez-le librement.",
+      price: 6500, currency: "XOF",
+      stock_qty: 8, low_stock_threshold: 3,
+      image_url: "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__2/-t-e-x-t_-t-o_-i-m-a-g-e-b481177d-a579-40dd-9d12-d1902be1b9c6.png?Expires=2101235149&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=y0QnGW3kb8~5ysGTUaMbikCHZLMBhwlJ2bSJz7COAHuUia2QZiQ~GVQ3yw2PcLYE1ec~V9QvRA8ZJU4Dp5qRhEpUB3bkX6YG9S4iU0KO7H8JuCXrlKeSzI4IiUhmJk~YL10AGp87W3ZqpEhmgTO2hrmK~pCfQIu25EvK1d9kTVIkNKcNtikkdGjQ7G4jjgGw46naNAlDaSgEL9HUROJ0lb~N79dIiXo-ZuIxNl3DF6N0R-x1enejBYE7djYWC46asQksin4e6wm9pkRJ3EWI1TKRnyE2dPBO6DK0427Bz0FwpL81BBCRx6Xn7Y0JxQpmzhHo8cg~l2vdmMjKQuwf6w__",
+      category: "Alimentation", active: true,
+      is_example: true, created_at: new Date().toISOString(),
+    });
+  } catch(e) { console.warn("[seedModuleExamplesV4] products oil:", e); }
+
+  try {
+    const s = await getSupa();
+    await s.from("products").insert({
+      id: xid(), user_id: uid,
+      name: "Coupe & Coiffure homme (exemple)",
+      description: "Ceci est un exemple de SERVICE (stock illimité) — pratique pour un salon de coiffure, un atelier, ou toute prestation. Modifiez-le ou supprimez-le librement.",
+      price: 3000, currency: "XOF",
+      stock_qty: null, low_stock_threshold: 3,
+      image_url: "", category: "Services", active: true,
+      is_example: true, created_at: new Date().toISOString(),
+    });
+  } catch(e) { console.warn("[seedModuleExamplesV4] products service:", e); }
+}
+
 // ── Compresse une image sélectionnée (galerie ou appareil photo natif) en
 //  JPEG avant envoi vers Supabase Storage — même profil que la capture
 //  caméra du Réseau (800px, qualité .72), pour rester cohérent partout. ──
@@ -3451,6 +3491,7 @@ function Dashboard({ses,logout,updSes}){
         // actifs qui n'ont jamais touché ces modules plus récents.
         seedModuleExamples(uid);
         seedModuleExamplesV3(uid);
+        seedModuleExamplesV4(uid);
 
         // ── Seed démo si compte vide ──
         if(rawTxs.length===0&&rawClis.length===0&&rawInvs.length===0){          await seed(uid);
