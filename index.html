@@ -158,12 +158,29 @@
     <script type="module" src="/src/main.jsx"></script>
 
     <!-- Service Worker Registration -->
+    <!-- Recharge automatiquement dès qu'une nouvelle version prend le
+         contrôle de la page — sans ça, une appli installée sur téléphone
+         (ouverte depuis l'écran d'accueil, jamais fermée) peut rester
+         bloquée sur une vieille version pendant que le web sur ordinateur
+         (rechargé plus souvent) reçoit déjà la nouvelle. -->
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js')
-            .then(reg => console.log('SW registered'))
+            .then(reg => {
+              console.log('SW registered');
+              // Vérifie activement une nouvelle version à chaque retour au premier plan
+              document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') reg.update();
+              });
+            })
             .catch(err => console.log('SW error:', err));
+        });
+        let vafRefreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (vafRefreshing) return;
+          vafRefreshing = true;
+          window.location.reload();
         });
       }
     </script>

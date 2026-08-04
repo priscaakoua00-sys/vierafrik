@@ -1,5 +1,8 @@
 // VierAfrik Service Worker — Cache & Offline
-const CACHE_NAME = 'vierafrik-v1';
+// v2 — force le renouvellement du cache pour les appareils restés bloqués
+// sur une ancienne version (le nom du cache ne changeait jamais avant,
+// donc "activate" ne nettoyait jamais rien d'un déploiement à l'autre).
+const CACHE_NAME = 'vierafrik-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
