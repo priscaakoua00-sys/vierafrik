@@ -583,6 +583,32 @@ async function seedModuleExamples(uid){
   } catch(e) { console.warn("[seedModuleExamples] employees:", e); }
 }
 
+// ── Compresse une image sélectionnée (galerie ou appareil photo natif) en
+//  JPEG avant envoi vers Supabase Storage — même profil que la capture
+//  caméra du Réseau (800px, qualité .72), pour rester cohérent partout. ──
+function compressImageFile(file, maxDim = 800, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      let w = img.width, h = img.height;
+      if (w > maxDim || h > maxDim) {
+        const r = Math.min(maxDim / w, maxDim / h);
+        w = Math.round(w * r); h = Math.round(h * r);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => {
+        URL.revokeObjectURL(url);
+        blob ? resolve(blob) : reject(new Error("Compression échouée"));
+      }, "image/jpeg", quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Image invalide")); };
+    img.src = url;
+  });
+}
+
 // ── UI Atoms ──
 // Badge réutilisé partout (Transactions, Factures, Clients, Employés,
 // Produits) pour signaler une ligne d'exemple, modifiable/supprimable
@@ -4619,11 +4645,16 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             </div>
             {cl.phone&&<div style={{fontSize:10,color:T.sub2,marginBottom:2}}>📞 {cl.phone}</div>}
             {cl.email&&<div style={{fontSize:10,color:T.sub2,marginBottom:8}}>✉️ {cl.email}</div>}
-            <div style={{display:"flex",gap:4}}>
-              <button onClick={()=>{setFm({...cl,_edit:true});setMdl("cli");}} style={{flex:1,background:"rgba(26,120,255,.1)",border:"none",color:T.blue,borderRadius:7,padding:"5px",cursor:"pointer",fontSize:10,fontWeight:700}}>✏️</button>
-              <button onClick={()=>{const ph=cleanP(cl.phone);const m=encodeURIComponent("Bonjour "+cl.name.split(" ")[0]+"\n"+ses.business+" vous contacte.");window.open(`https://wa.me/${ph}?text=${m}`,"_blank");}} style={{flex:1,background:"rgba(37,211,102,.1)",border:"none",color:"#25D366",borderRadius:7,padding:"5px",cursor:"pointer",fontSize:10,fontWeight:700}}>📱</button>
-              <button onClick={()=>{setConfirm({title:"🗑 Supprimer le client",msg:`Supprimer ${cl.name} de votre liste clients ?`,confirmLabel:"Supprimer",danger:true,onConfirm:async()=>{setClis(prev=>prev.filter(x=>x.id!==cl.id));setConfirm(null);const ok=await supaDelete("clients",cl.id);if(!ok){setClis(prev=>[cl,...prev]);toast("❌ Suppression échouée, réessayez.","err");return;}toast("🗑 "+cl.name+" supprimé","warn");}});}} style={{background:"rgba(255,34,85,.1)",border:"none",color:T.red,borderRadius:7,padding:"5px 9px",cursor:"pointer",fontSize:10}}>🗑</button>
+            <div style={{display:"flex",gap:4,marginBottom:4}}>
+              <button title="Modifier" onClick={()=>{setFm({...cl,_edit:true});setMdl("cli");}} style={{flex:1,background:"rgba(26,120,255,.1)",border:"none",color:T.blue,borderRadius:7,padding:"5px",cursor:"pointer",fontSize:10,fontWeight:700}}>✏️</button>
+              <button title="WhatsApp" disabled={!cl.phone} onClick={()=>{const ph=cleanP(cl.phone);const m=encodeURIComponent("Bonjour "+cl.name.split(" ")[0]+"\n"+ses.business+" vous contacte.");window.open(`https://wa.me/${ph}?text=${m}`,"_blank");}} style={{flex:1,background:"rgba(37,211,102,.1)",border:"none",color:"#25D366",borderRadius:7,padding:"5px",cursor:cl.phone?"pointer":"not-allowed",fontSize:10,fontWeight:700,opacity:cl.phone?1:.4}}>📱</button>
+              <button title="Email" disabled={!cl.email} onClick={()=>{const subj=encodeURIComponent(`${ses.business||"VierAfrik"} — Contact`);const body=encodeURIComponent(`Bonjour ${cl.name.split(" ")[0]},\n\n`);window.open(`mailto:${cl.email}?subject=${subj}&body=${body}`,"_self");}} style={{flex:1,background:"rgba(240,176,32,.1)",border:"none",color:T.gold,borderRadius:7,padding:"5px",cursor:cl.email?"pointer":"not-allowed",fontSize:10,fontWeight:700,opacity:cl.email?1:.4}}>✉️</button>
+              <button title="Supprimer" onClick={()=>{setConfirm({title:"🗑 Supprimer le client",msg:`Supprimer ${cl.name} de votre liste clients ?`,confirmLabel:"Supprimer",danger:true,onConfirm:async()=>{setClis(prev=>prev.filter(x=>x.id!==cl.id));setConfirm(null);const ok=await supaDelete("clients",cl.id);if(!ok){setClis(prev=>[cl,...prev]);toast("❌ Suppression échouée, réessayez.","err");return;}toast("🗑 "+cl.name+" supprimé","warn");}});}} style={{background:"rgba(255,34,85,.1)",border:"none",color:T.red,borderRadius:7,padding:"5px 9px",cursor:"pointer",fontSize:10}}>🗑</button>
             </div>
+            <button title="Créer une facture pour ce client" onClick={()=>{setFm({clientName:cl.name,clientId:cl.id,phone:cl.phone||"",issued:today(),status:"pending",tax:0,currency:DEFAULT_CURRENCY,items:[{id:xid(),name:"",qty:1,price:0}]});setMdl("inv");}}
+              style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:`${accent}12`,border:`1px solid ${accent}33`,color:accent,borderRadius:7,padding:"6px",cursor:"pointer",fontSize:10.5,fontWeight:700}}>
+              🧾 Créer une facture
+            </button>
           </div>
         ))}
         {clis.length===0&&(
@@ -5326,6 +5357,8 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     const [stockDelta, setStockDelta]   = useState("");
     const [stockReason, setStockReason] = useState("");
     const [savingPr, setSavingPr]   = useState(false);
+    const [uploadingPhoto, setUploadingPhoto] = useState(false);
+    const photoInputRef = useRef(null);
 
     const loadProds = async () => {
       setLoadingPr(true);
@@ -5515,7 +5548,11 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             {prods.map(p => {
               const badge = stockBadge(p);
               return (
-                <div key={p.id} style={{ background:`linear-gradient(135deg,${T.c1},${T.c2})`, border:`1px solid ${T.border}`, borderRadius:16, padding:"1rem", animation: flashId===p.id?"flashGreen .7s ease":"none", opacity:p.active?1:.55 }}>
+                <div key={p.id} style={{ background:`linear-gradient(135deg,${T.c1},${T.c2})`, border:`1px solid ${T.border}`, borderRadius:16, overflow:"hidden", animation: flashId===p.id?"flashGreen .7s ease":"none", opacity:p.active?1:.55 }}>
+                  <div style={{ height:96, background:p.image_url?`url(${p.image_url}) center/cover`:`linear-gradient(135deg,${T.c2},${T.c3})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:26 }}>
+                    {!p.image_url && "🛍️"}
+                  </div>
+                  <div style={{ padding:"1rem" }}>
                   <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:8, marginBottom:8 }}>
                     <div style={{ fontWeight:800, fontSize:13.5, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</div>
                     {p.is_example && <ExampleBadge/>}
@@ -5538,6 +5575,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                       style={{ padding:"8px 10px", borderRadius:9, border:`1px solid rgba(255,34,85,.25)`, background:"rgba(255,34,85,.08)", color:T.red, fontFamily:"inherit", fontSize:10.5, cursor:"pointer" }}>
                       🗑
                     </button>
+                  </div>
                   </div>
                 </div>
               );
@@ -5578,8 +5616,37 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
               }/>
             </div>
           )}
-          <FL l="URL image (optionnel)" ch={
-            <input style={IS} placeholder="https://…" value={fmPr.image_url||""} onChange={ev=>setFmPr(f=>({...f,image_url:ev.target.value}))}/>
+          <FL l="Photo du produit (optionnel)" ch={
+            <div>
+              {fmPr.image_url && (
+                <div style={{ position:"relative", width:96, height:96, marginBottom:9 }}>
+                  <img src={fmPr.image_url} alt="" style={{ width:96, height:96, objectFit:"cover", borderRadius:12, border:`1px solid ${T.border}`, display:"block" }}/>
+                  <button type="button" onClick={()=>setFmPr(f=>({...f,image_url:""}))}
+                    style={{ position:"absolute", top:-7, right:-7, width:22, height:22, borderRadius:"50%", background:T.red, border:`2px solid ${T.c1}`, color:"#fff", fontSize:11, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+                </div>
+              )}
+              <input ref={photoInputRef} type="file" accept="image/*" style={{ display:"none" }}
+                onChange={async ev=>{
+                  const file = ev.target.files?.[0];
+                  ev.target.value = "";
+                  if (!file) return;
+                  setUploadingPhoto(true);
+                  try {
+                    const blob = await compressImageFile(file);
+                    const s = await getSupa();
+                    const url = await uploadNetworkMedia(s, uid, blob, { folder:"products", ext:"jpg", contentType:"image/jpeg" });
+                    setFmPr(f=>({ ...f, image_url:url }));
+                  } catch(e) {
+                    toast("❌ Envoi de la photo échoué, réessayez", "err");
+                    console.error("product photo upload:", e);
+                  }
+                  setUploadingPhoto(false);
+                }}/>
+              <button type="button" disabled={uploadingPhoto} onClick={()=>photoInputRef.current?.click()}
+                style={{ display:"inline-flex", alignItems:"center", gap:7, background:T.c2, border:`1px solid ${T.border}`, borderRadius:10, padding:"9px 14px", color:T.text, fontFamily:"inherit", fontWeight:700, fontSize:12, cursor:uploadingPhoto?"default":"pointer", opacity:uploadingPhoto?.6:1 }}>
+                {uploadingPhoto ? "⏳ Envoi…" : fmPr.image_url ? "🔄 Changer la photo" : "📷 Ajouter une photo"}
+              </button>
+            </div>
           }/>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
             <input type="checkbox" id="prActive" checked={fmPr.active!==false}
