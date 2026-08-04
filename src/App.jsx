@@ -469,8 +469,8 @@ const cleanP=p=>(p||"").replace(/\D/g,"");
 function ConfirmModal({open,onClose,onConfirm,title,msg,confirmLabel="Confirmer",danger=false}){
   if(!open)return null;
   return(
-    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.9)",zIndex:950,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(12px)",padding:"12px",overflowY:"auto"}}>
-      <div style={{background:T.c1,border:`1px solid ${danger?"rgba(255,34,85,.3)":T.border}`,borderRadius:18,padding:"1.6rem",width:"90%",maxWidth:380,margin:"auto",color:T.text,boxShadow:"0 40px 100px rgba(0,0,0,.9)",animation:"pop .2s cubic-bezier(.34,1.56,.64,1)"}}>
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.9)",zIndex:950,display:"flex",alignItems:"flex-start",justifyContent:"center",backdropFilter:"blur(12px)",padding:"12px",overflowY:"auto"}}>
+      <div style={{background:T.c1,border:`1px solid ${danger?"rgba(255,34,85,.3)":T.border}`,borderRadius:18,padding:"1.6rem",width:"90%",maxWidth:380,margin:"10vh auto",color:T.text,boxShadow:"0 40px 100px rgba(0,0,0,.9)",animation:"pop .2s cubic-bezier(.34,1.56,.64,1)"}}>
         <div style={{fontWeight:900,fontSize:17,marginBottom:10}}>{title}</div>
         <div style={{fontSize:13,color:T.sub2,marginBottom:20,lineHeight:1.6}}>{msg}</div>
         <div style={{display:"flex",gap:9}}>
@@ -690,8 +690,8 @@ function Modal({open,onClose,title,ch,wide,children}){
   // ch (prop legacy) a priorité sur children, ne pas passer les deux simultanément
   if(!open)return null;
   return(
-    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",zIndex:900,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(16px)",padding:"12px",overflowY:"auto"}}>
-      <div style={{background:`linear-gradient(160deg,${T.c1},${T.c2})`,border:`1px solid rgba(0,210,120,.2)`,borderRadius:24,padding:"1.8rem",width:"100%",maxWidth:wide?740:500,position:"relative",margin:"auto",color:T.text,boxShadow:"0 40px 120px rgba(0,0,0,.95)",animation:"pop .28s cubic-bezier(.34,1.56,.64,1)"}}>
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",zIndex:900,display:"flex",alignItems:"flex-start",justifyContent:"center",backdropFilter:"blur(16px)",padding:"12px",overflowY:"auto"}}>
+      <div style={{background:`linear-gradient(160deg,${T.c1},${T.c2})`,border:`1px solid rgba(0,210,120,.2)`,borderRadius:24,padding:"1.8rem",width:"100%",maxWidth:wide?740:500,position:"relative",margin:"5vh auto",color:T.text,boxShadow:"0 40px 120px rgba(0,0,0,.95)",animation:"pop .28s cubic-bezier(.34,1.56,.64,1)"}}>
         <button onClick={onClose} style={{position:"absolute",top:16,right:16,background:T.c3,border:`1px solid ${T.border}`,color:T.sub2,width:30,height:30,borderRadius:"50%",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .18s"}}>✕</button>
         {title&&<div style={{fontWeight:800,fontSize:19,marginBottom:20,letterSpacing:"-.03em"}}>{title}</div>}
         {ch !== undefined ? ch : children}
@@ -9220,7 +9220,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
 
       {/* ── UPGRADE WALL, affiché quand une limite Free précise est atteinte ── */}
       {showUpgradeWall&&(
-        <div onClick={()=>setShowUpgradeWall(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:980,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(18px)",padding:"16px",overflowY:"auto"}}>
+        <div onClick={()=>setShowUpgradeWall(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:980,display:"flex",alignItems:"flex-start",justifyContent:"center",backdropFilter:"blur(18px)",padding:"16px",overflowY:"auto"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:`linear-gradient(160deg,${T.c1},${T.c2})`,border:`2px solid ${T.gr}55`,borderRadius:28,padding:"2rem 1.8rem",width:"100%",maxWidth:420,textAlign:"center",boxShadow:`0 40px 120px rgba(0,0,0,.95)`,animation:"pop .3s cubic-bezier(.34,1.56,.64,1)"}}>
             <div style={{fontSize:56,marginBottom:10}}>🚀</div>
             <div style={{fontWeight:900,fontSize:22,letterSpacing:"-.04em",marginBottom:6,color:T.gr}}>Tu maîtrises VierAfrik !</div>
