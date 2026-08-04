@@ -583,6 +583,45 @@ async function seedModuleExamples(uid){
   } catch(e) { console.warn("[seedModuleExamples] employees:", e); }
 }
 
+// ── Exemples Devis & Rendez-vous, gate séparée (v3) pour s'appliquer
+//  aussi aux comptes déjà passés par seedModuleExamples avant l'ajout
+//  de ces deux modules. Même principe : une fois, flag user_metadata. ──
+async function seedModuleExamplesV3(uid){
+  try {
+    const s0 = await getSupa();
+    const { data: { user } } = await s0.auth.getUser();
+    if (user?.user_metadata?.seeded_examples_v3) return;
+    await s0.auth.updateUser({ data: { seeded_examples_v3: true } });
+  } catch(_e) { return; }
+
+  const year = new Date().getFullYear();
+  try {
+    const s = await getSupa();
+    await s.from("quotes").insert({
+      id: xid(), user_id: uid, number: `DEV-${year}-0001`,
+      client_name: "Client exemple", phone: "",
+      subtotal: 25000, tax: 0, total: 25000, currency: "XOF",
+      status: "draft", issued: new Date().toISOString().slice(0,10),
+      items: JSON.stringify([{ id: xid(), name: "Prestation exemple", qty:1, price:25000, line:25000 }]),
+      notes: "Ceci est un devis d'exemple — modifiez-le ou supprimez-le librement.",
+      is_example: true, created_at: new Date().toISOString(),
+    });
+  } catch(e) { console.warn("[seedModuleExamplesV3] quotes:", e); }
+
+  try {
+    const s = await getSupa();
+    const tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10);
+    await s.from("appointments").insert({
+      id: xid(), user_id: uid,
+      client_name: "Client exemple", phone: "",
+      title: "Rendez-vous exemple", date: tomorrow, time: "10:00",
+      status: "planifie",
+      notes: "Ceci est un rendez-vous d'exemple — modifiez-le ou supprimez-le librement.",
+      is_example: true, created_at: new Date().toISOString(),
+    });
+  } catch(e) { console.warn("[seedModuleExamplesV3] appointments:", e); }
+}
+
 // ── Compresse une image sélectionnée (galerie ou appareil photo natif) en
 //  JPEG avant envoi vers Supabase Storage — même profil que la capture
 //  caméra du Réseau (800px, qualité .72), pour rester cohérent partout. ──
@@ -3394,6 +3433,7 @@ function Dashboard({ses,logout,updSes}){
         // Indépendant du seed tx/cli/inv ci-dessous : s'applique aussi aux comptes déjà
         // actifs qui n'ont jamais touché ces modules plus récents.
         seedModuleExamples(uid);
+        seedModuleExamplesV3(uid);
 
         // ── Seed démo si compte vide ──
         if(rawTxs.length===0&&rawClis.length===0&&rawInvs.length===0){          await seed(uid);
@@ -4356,6 +4396,22 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             <div style={{fontSize:10,color:T.sub2}}>Lien à partager</div>
           </div>
         </div>
+        <div onClick={()=>setPage("devis")} style={{cursor:"pointer",background:T.c1,border:`1px solid ${T.border}`,borderRadius:14,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,transition:"border-color .2s"}}
+          onMouseEnter={e=>e.currentTarget.style.borderColor=`${T.gold}44`} onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
+          <div style={{width:36,height:36,borderRadius:10,background:`${T.gold}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📝</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:800,fontSize:12.5,color:T.text}}>Devis</div>
+            <div style={{fontSize:10,color:T.sub2}}>Proposer un prix</div>
+          </div>
+        </div>
+        <div onClick={()=>setPage("rdv")} style={{cursor:"pointer",background:T.c1,border:`1px solid ${T.border}`,borderRadius:14,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,transition:"border-color .2s"}}
+          onMouseEnter={e=>e.currentTarget.style.borderColor=`${T.purple}44`} onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
+          <div style={{width:36,height:36,borderRadius:10,background:`${T.purple}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📅</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:800,fontSize:12.5,color:T.text}}>Rendez-vous</div>
+            <div style={{fontSize:10,color:T.sub2}}>Planning clients</div>
+          </div>
+        </div>
       </div>
       {/* Alerte */}
       {invs.filter(i=>i.status==="overdue").length>0&&(
@@ -4616,6 +4672,548 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     );
   };
 
+  // ══════════════════════════════════════════════════════════
+  //  MODULE DEVIS
+  //  - CRUD devis (Supabase : table "quotes")
+  //  - Conversion en facture en 1 clic (crée une vraie facture,
+  //    marque le devis "converted", lié via invoice_id)
+  //  - PDF + envoi WhatsApp, même style que les factures
+  // ══════════════════════════════════════════════════════════
+  const QUOTE_STATUS = {
+    draft:     { lb:"📝 Brouillon", col:T.sub },
+    sent:      { lb:"📤 Envoyé",    col:T.blue },
+    accepted:  { lb:"✅ Accepté",   col:T.gr },
+    declined:  { lb:"🔴 Refusé",    col:T.red },
+    converted: { lb:"🧾 Converti",  col:T.purple },
+  };
+
+  const PgDevis = () => {
+    const [quotes, setQuotes] = useState([]);
+    const [loadingQ, setLoadingQ] = useState(true);
+    const [mdlQ, setMdlQ] = useState(null); // "add"|"edit"
+    const [fmQ, setFmQ] = useState({});
+    const [savingQ, setSavingQ] = useState(false);
+    const _lastQSeq = useRef(0);
+
+    const loadQuotes = async () => {
+      setLoadingQ(true);
+      try {
+        const s = await getSupa();
+        const { data, error } = await s.from("quotes").select("*").eq("user_id", uid).order("created_at", { ascending:false });
+        if (!error && data) setQuotes(data.map(r => ({
+          id:r.id, num:r.number||"", clientId:r.client_id||"", clientName:r.client_name||"", phone:r.phone||"",
+          sub:parseFloat(r.subtotal)||0, tax:parseFloat(r.tax)||0, total:parseFloat(r.total)||0,
+          currency:r.currency||DEFAULT_CURRENCY, status:r.status||"draft",
+          issued:r.issued||today(), validUntil:r.valid_until||"",
+          items: typeof r.items==="string" ? JSON.parse(r.items||"[]") : (r.items||[]),
+          notes:r.notes||"", invoiceId:r.invoice_id||"", is_example:!!r.is_example,
+        })));
+      } catch(e) { console.error("quotes load:", e); }
+      finally { setLoadingQ(false); }
+    };
+    useEffect(() => { loadQuotes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [uid]);
+
+    const nextQuoteNum = () => {
+      const year = new Date().getFullYear();
+      const prefix = `DEV-${year}-`;
+      const maxFromState = quotes.reduce((max,q) => {
+        if (q.num && q.num.startsWith(prefix)) {
+          const seq = parseInt(q.num.slice(prefix.length).split("-")[0], 10);
+          return isNaN(seq) ? max : Math.max(max, seq);
+        }
+        return max;
+      }, 0);
+      const seq = Math.max(maxFromState, _lastQSeq.current) + 1;
+      _lastQSeq.current = seq;
+      return `${prefix}${String(seq).padStart(4,"0")}`;
+    };
+
+    const saveQuote = async () => {
+      if (!fmQ.clientName || !fmQ.clientName.trim()) { toast("⚠️ Le nom du client est obligatoire", "err"); return; }
+      const items = (fmQ.items||[]).filter(it => it.name && parseFloat(it.price) > 0);
+      if (!items.length) { toast("⚠️ Ajoutez au moins un article avec un prix supérieur à 0", "err"); return; }
+      setSavingQ(true);
+      const sub = items.reduce((s,it) => s + (it.qty||1)*(it.price||0), 0);
+      const tax = parseFloat(fmQ.tax) || 0;
+      const total = sub + tax;
+      const q = {
+        id: fmQ._edit ? fmQ.id : xid(),
+        num: fmQ._edit ? fmQ.num : nextQuoteNum(),
+        clientId: fmQ.clientId||"", clientName: fmQ.clientName.trim(), phone: fmQ.phone||"",
+        sub, tax, total, currency: fmQ.currency||DEFAULT_CURRENCY,
+        status: fmQ.status||"draft",
+        issued: fmQ.issued||today(), validUntil: fmQ.validUntil||"",
+        items: items.map(it => ({ ...it, id: it.id||xid(), line:(it.qty||1)*(it.price||0) })),
+        notes: fmQ.notes||"", invoiceId: fmQ.invoiceId||"",
+      };
+      if (fmQ._edit) {
+        const prevQ = quotes.find(x => x.id===q.id);
+        setQuotes(prev => prev.map(x => x.id===q.id?q:x));
+        setMdlQ(null); setFmQ({});
+        try {
+          const s = await getSupa();
+          const { error } = await s.from("quotes").update({
+            client_id:q.clientId, client_name:q.clientName, phone:q.phone,
+            subtotal:q.sub, tax:q.tax, total:q.total, currency:q.currency, status:q.status,
+            issued:q.issued, valid_until:q.validUntil||null, items:JSON.stringify(q.items), notes:q.notes,
+          }).eq("id", q.id);
+          if (error) { if(prevQ) setQuotes(prev=>prev.map(x=>x.id===q.id?prevQ:x)); toast("❌ Modification non sauvegardée, réessayez", "err"); console.error(error); }
+          else toast("✅ Devis modifié !");
+        } catch(e) { if(prevQ) setQuotes(prev=>prev.map(x=>x.id===q.id?prevQ:x)); toast("❌ Erreur réseau", "err"); }
+        setSavingQ(false);
+        return;
+      }
+      setQuotes(prev => [q, ...prev]);
+      setFlashId(q.id);
+      setMdlQ(null); setFmQ({});
+      try {
+        const s = await getSupa();
+        const { error } = await s.from("quotes").insert({
+          id:q.id, user_id:uid, number:q.num, client_id:q.clientId, client_name:q.clientName, phone:q.phone,
+          subtotal:q.sub, tax:q.tax, total:q.total, currency:q.currency, status:q.status,
+          issued:q.issued, valid_until:q.validUntil||null, items:JSON.stringify(q.items), notes:q.notes,
+        });
+        if (error) { setQuotes(prev => prev.filter(x=>x.id!==q.id)); toast("❌ Erreur sauvegarde devis, réessayez", "err"); console.error(error); }
+        else { toast(`✅ Devis ${q.num} créé !`); markUserActive(uid); }
+      } catch(e) { setQuotes(prev => prev.filter(x=>x.id!==q.id)); toast("❌ Erreur réseau", "err"); }
+      setSavingQ(false);
+    };
+
+    const deleteQuote = (q) => {
+      setConfirm({
+        title: "🗑 Supprimer le devis",
+        msg: `Supprimer le devis ${q.num} ?`,
+        confirmLabel: "Supprimer", danger: true,
+        onConfirm: async () => {
+          setQuotes(prev => prev.filter(x=>x.id!==q.id));
+          setConfirm(null);
+          const ok = await supaDelete("quotes", q.id);
+          if (!ok) { setQuotes(prev => [q, ...prev]); toast("❌ Suppression échouée, réessayez", "err"); return; }
+          toast("🗑 Devis supprimé", "warn");
+        },
+      });
+    };
+
+    const setQuoteStatus = async (q, status) => {
+      setQuotes(prev => prev.map(x => x.id===q.id?{...x,status}:x));
+      try {
+        const s = await getSupa();
+        const { error } = await s.from("quotes").update({ status }).eq("id", q.id);
+        if (error) { toast("❌ Erreur mise à jour du statut", "err"); console.error(error); }
+      } catch(e) { toast("❌ Erreur réseau", "err"); }
+    };
+
+    const convertToInvoice = async (q) => {
+      if (!isAdmin && !canAdd("inv")) { toast(`🔒 Plan ${plan.label}, ${plan.maxInv} factures max. Passez à Pro pour continuer !`, "warn"); return; }
+      setSavingQ(true);
+      const invObj = {
+        id: xid(), num: nextNum(), clientId:q.clientId, clientName:q.clientName, phone:q.phone,
+        total:q.total, sub:q.sub, tax:q.tax, currency:q.currency, status:"pending",
+        issued: today(), due:"", items:q.items, notes:q.notes,
+        payStatus:"unpaid", payRef:"", payProv:"", amtPaid:0,
+      };
+      try {
+        const s = await getSupa();
+        const { error:e1 } = await s.from("invoices").insert({
+          id:invObj.id, user_id:uid, number:invObj.num, client_name:invObj.clientName, phone:invObj.phone,
+          total:invObj.total, subtotal:invObj.sub, tax:invObj.tax, currency:invObj.currency, status:"pending",
+          issued:invObj.issued, items:JSON.stringify(invObj.items), notes:invObj.notes, amt_paid:0,
+        });
+        if (e1) { toast("❌ Conversion échouée, réessayez", "err"); console.error(e1); setSavingQ(false); return; }
+        const { error:e2 } = await s.from("quotes").update({ status:"converted", invoice_id:invObj.id }).eq("id", q.id);
+        if (e2) console.warn("quote status update after convert:", e2);
+        setInvs(prev => [invObj, ...prev]);
+        setQuotes(prev => prev.map(x => x.id===q.id?{...x,status:"converted",invoiceId:invObj.id}:x));
+        flashNew(invObj.id);
+        toast(`🧾 Facture ${invObj.num} créée depuis le devis !`, "ok", T.gr);
+        markUserActive(uid); trackUsage();
+      } catch(e) { toast("❌ Erreur réseau", "err"); }
+      setSavingQ(false);
+    };
+
+    const sendQuoteWA = (q) => {
+      const ph = cleanP(q.phone);
+      if (!ph) { toast("⚠️ Aucun numéro de téléphone pour ce client", "err"); return; }
+      const msg = encodeURIComponent(`Bonjour ${q.clientName.split(" ")[0]}, voici votre devis ${q.num} : ${fmtPrice(q.total,q.currency)}. Merci de nous confirmer votre accord.`);
+      window.open(`https://wa.me/${ph}?text=${msg}`, "_blank");
+    };
+
+    const genQuotePDF = (q) => {
+      if (!plan.pdf && !isAdmin) { toast("PDF disponible en plan Pro 🚀", "warn"); return; }
+      const fp = n => fmtPrice(n, q.currency);
+      doPrint(`
+<style>#print-area *{box-sizing:border-box}#print-area{font-family:sans-serif;padding:40px;max-width:740px;margin:0 auto;font-size:13px;color:#111;background:#fff}
+#print-area .hdr{display:flex;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #f0b020}
+#print-area .brand{font-size:22px;font-weight:900}#print-area .brand b{color:#f0b020}
+#print-area .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:20px}
+#print-area .lbl{font-size:9px;text-transform:uppercase;color:#888;margin-bottom:2px}#print-area .val{font-weight:700;font-size:13px}
+#print-area table{width:100%;border-collapse:collapse;margin-bottom:16px}#print-area th{background:#fff8e6;padding:8px 11px;text-align:left;font-size:9px;text-transform:uppercase;color:#555;border-bottom:2px solid #f0b020}#print-area td{padding:8px 11px;border-bottom:1px solid #eee}
+#print-area .tot{text-align:right;margin-bottom:14px}#print-area .grand{font-weight:900;font-size:19px;color:#c08000}
+#print-area .foot{margin-top:24px;padding-top:14px;border-top:1px solid #eee;text-align:center;color:#aaa;font-size:10px}
+@media print{#print-area{padding:22px}}</style>
+<div class="hdr"><div><div class="brand">🌍 Vier<b>Afrik</b></div><div style="color:#555;margin-top:4px">${ses.business||"Mon Entreprise"}</div><div style="color:#999;font-size:11px">${ses.email}</div></div>
+<div style="text-align:right"><div style="font-size:18px;font-weight:900">${q.num}</div><div style="color:#f0b020;font-weight:800;margin-top:4px">DEVIS</div></div></div>
+<div class="grid"><div><div class="lbl">Devis pour</div><div class="val">${q.clientName}</div><div style="color:#555;margin-top:3px;font-size:12px">${q.phone||""}</div></div>
+<div style="text-align:right"><div class="lbl">Date d'émission</div><div class="val">${q.issued}</div><div style="margin-top:8px"><div class="lbl">Valable jusqu'au</div><div class="val">${q.validUntil||"-"}</div></div></div></div>
+<table><thead><tr><th>Description</th><th>Qté</th><th>Prix unitaire</th><th>Total</th></tr></thead><tbody>
+${(q.items||[]).map(it=>`<tr><td>${it.name}</td><td>${it.qty||1}</td><td>${fp(it.price)}</td><td><strong>${fp(it.line||(it.qty||1)*it.price)}</strong></td></tr>`).join("")}
+</tbody></table>
+<div class="tot"><div>Sous-total : <strong>${fp(q.sub)}</strong></div>${q.tax>0?`<div>Taxes : <strong>${fp(q.tax)}</strong></div>`:""}<div class="grand">TOTAL : ${fp(q.total)}</div></div>
+${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-size:12px;color:#555;margin-bottom:12px"><strong>Notes :</strong> ${q.notes}</div>`:""}
+<div class="foot">VierAfrik · ${q.validUntil?`Devis valable jusqu'au ${q.validUntil}`:""} · ${today()}</div>
+`, `devis-${q.num}.pdf`);
+    };
+
+    return (
+      <div style={{ animation:"slideUp .3s ease both" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16, flexWrap:"wrap", gap:8 }}>
+          <div>
+            <div style={{ fontWeight:900, fontSize:22, letterSpacing:"-.03em" }}>📝 Devis</div>
+            <div style={{ fontSize:11, color:T.sub2, marginTop:2 }}>{quotes.length} devis · Convertissez en facture en 1 clic une fois accepté</div>
+          </div>
+          <Btn ch="+ Nouveau devis" onClick={() => { setFmQ({ issued:today(), status:"draft", tax:0, currency:DEFAULT_CURRENCY, items:[{id:xid(),name:"",qty:1,price:0}] }); setMdlQ("add"); }}/>
+        </div>
+
+        {loadingQ ? (
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))", gap:9 }}>
+            {[0,1].map(k=>{
+              const shimmer={ background:`linear-gradient(90deg,${T.c2} 25%,${T.c3} 50%,${T.c2} 75%)`, backgroundSize:"200% 100%", animation:"skeletonShimmer 1.4s ease infinite" };
+              return <div key={k} style={{ height:170, borderRadius:15, ...shimmer }}/>;
+            })}
+          </div>
+        ) : quotes.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"3rem 1.5rem", background:T.c1, border:`1px solid ${T.border}`, borderRadius:20 }}>
+            <div style={{ fontSize:52, marginBottom:12 }}>📝</div>
+            <div style={{ fontWeight:800, fontSize:15, marginBottom:6 }}>Aucun devis</div>
+            <div style={{ fontSize:12, color:T.sub2, marginBottom:16, lineHeight:1.6 }}>Proposez un prix avant la vente, puis convertissez le devis accepté en facture en un clic.</div>
+            <Btn ch="+ Nouveau devis" onClick={() => { setFmQ({ issued:today(), status:"draft", tax:0, currency:DEFAULT_CURRENCY, items:[{id:xid(),name:"",qty:1,price:0}] }); setMdlQ("add"); }}/>
+          </div>
+        ) : (
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))", gap:9 }}>
+            {quotes.map(q => {
+              const st = QUOTE_STATUS[q.status] || QUOTE_STATUS.draft;
+              return (
+                <div key={q.id} style={{ background:T.c2, border:`1px solid ${T.border}`, borderRadius:15, padding:"1rem", position:"relative", overflow:"hidden", animation:flashId===q.id?"flashGreen .7s ease":"none" }}>
+                  <div style={{ position:"absolute", bottom:0, left:0, right:0, height:3, background:st.col }}/>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:7 }}>
+                    <div>
+                      <div style={{ fontSize:9, fontWeight:700, color:T.sub, textTransform:"uppercase", letterSpacing:".07em" }}>{q.num}</div>
+                      <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                        <div style={{ fontWeight:800, fontSize:13, marginTop:1 }}>{q.clientName}</div>
+                        {q.is_example && <ExampleBadge/>}
+                      </div>
+                    </div>
+                    <span style={{ background:`${st.col}1a`, color:st.col, borderRadius:20, padding:"2px 8px", fontSize:9, fontWeight:700, flexShrink:0 }}>{st.lb}</span>
+                  </div>
+                  <div style={{ fontSize:21, fontWeight:900, color:T.gold, letterSpacing:"-.02em", marginBottom:6 }}>{fmtPrice(q.total, q.currency)}</div>
+                  <div style={{ fontSize:10, color:T.sub2, marginBottom:10 }}>Émis : {q.issued}{q.validUntil?` · Valable jusqu'au ${q.validUntil}`:""}</div>
+
+                  {(q.status==="draft"||q.status==="sent") && (
+                    <div style={{ display:"flex", gap:5, marginBottom:6 }}>
+                      <button onClick={()=>setQuoteStatus(q,"accepted")} style={{ flex:1, background:"rgba(0,212,120,.1)", border:"none", color:T.gr, borderRadius:7, padding:"6px 4px", cursor:"pointer", fontSize:10, fontWeight:700 }}>✅ Accepté</button>
+                      <button onClick={()=>setQuoteStatus(q,"declined")} style={{ flex:1, background:"rgba(255,34,85,.08)", border:"none", color:T.red, borderRadius:7, padding:"6px 4px", cursor:"pointer", fontSize:10, fontWeight:700 }}>🔴 Refusé</button>
+                    </div>
+                  )}
+                  {q.status==="accepted" && (
+                    <button disabled={savingQ} onClick={()=>convertToInvoice(q)} style={{ width:"100%", marginBottom:6, background:`linear-gradient(135deg,${accent},${T.teal})`, border:"none", color:T.ink, borderRadius:8, padding:"8px", cursor:savingQ?"default":"pointer", fontSize:11, fontWeight:800 }}>🔄 Convertir en facture</button>
+                  )}
+                  {q.status==="converted" && (
+                    <div style={{ fontSize:10, color:T.purple, marginBottom:6, fontWeight:700 }}>🧾 Facture créée</div>
+                  )}
+
+                  <div style={{ display:"flex", gap:3, marginBottom:3 }}>
+                    <button onClick={()=>sendQuoteWA(q)} style={{ flex:1, background:"rgba(37,211,102,.13)", border:"1px solid rgba(37,211,102,.3)", color:"#25D366", borderRadius:7, padding:"6px 4px", cursor:"pointer", fontSize:10, fontWeight:700 }}>📲 WhatsApp</button>
+                    <button onClick={()=>genQuotePDF(q)} style={{ flex:1, background:"rgba(0,191,204,.1)", border:"1px solid rgba(0,191,204,.25)", color:T.teal, borderRadius:7, padding:"6px 4px", cursor:"pointer", fontSize:10, fontWeight:700 }}>📄 PDF</button>
+                  </div>
+                  <div style={{ display:"flex", gap:3 }}>
+                    <button onClick={()=>{ setFmQ({...q,_edit:true}); setMdlQ("edit"); }} style={{ flex:1, background:"rgba(26,120,255,.07)", border:"none", color:T.blue, borderRadius:7, padding:"4px", cursor:"pointer", fontSize:10, fontWeight:700 }}>✏️ Modifier</button>
+                    <button onClick={()=>deleteQuote(q)} style={{ background:"rgba(255,34,85,.08)", border:"none", color:T.red, borderRadius:7, padding:"4px 9px", cursor:"pointer", fontSize:10 }}>🗑</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── MODAL : Ajouter / Modifier devis ── */}
+        <Modal open={mdlQ==="add"||mdlQ==="edit"} onClose={()=>{setMdlQ(null);setFmQ({});}} title={mdlQ==="edit"?"✏️ Modifier le devis":"📝 Nouveau devis"} wide>
+          <div className="pg-grid-2">
+            <FL l="Client" ch={<><input type="text" style={IS} placeholder="Nom du client" value={fmQ.clientName||""} onChange={ev=>{const n=ev.target.value;const cl=clis.find(c=>c.name.toLowerCase()===n.toLowerCase());setFmQ(f=>({...f,clientName:n,clientId:cl?.id||"",phone:cl?.phone||f.phone||""}));}} list="cl_devis"/><datalist id="cl_devis">{clis.map(c=><option key={c.id} value={c.name}/>)}</datalist></>}/>
+            <FL l="Téléphone" ch={<input type="tel" style={IS} placeholder="+225 07 000 0000" value={fmQ.phone||""} onChange={ev=>setFmQ(f=>({...f,phone:ev.target.value}))}/>}/>
+            <FL l="Date d'émission" ch={<input type="date" style={IS} value={fmQ.issued||today()} onChange={ev=>setFmQ(f=>({...f,issued:ev.target.value}))}/>}/>
+            <FL l="Valable jusqu'au" ch={<input type="date" style={IS} value={fmQ.validUntil||""} onChange={ev=>setFmQ(f=>({...f,validUntil:ev.target.value}))}/>}/>
+            <FL l="Devise">
+              <select style={IS} value={fmQ.currency||DEFAULT_CURRENCY} onChange={ev=>setFmQ(f=>({...f,currency:ev.target.value}))}>
+                {CURRENCIES.map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+            </FL>
+            <FL l="Taxe" ch={<input type="number" style={IS} placeholder="0" value={fmQ.tax===0||fmQ.tax===undefined?"":fmQ.tax} onChange={ev=>setFmQ(f=>({...f,tax:parseFloat(ev.target.value)||0}))}/>}/>
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:".07em", color:T.sub, marginBottom:8 }}>Articles</div>
+            {(fmQ.items||[]).map((it,i)=>(
+              <div key={it.id||i} style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1fr auto", gap:6, marginBottom:6, alignItems:"center" }}>
+                <input style={{...IS,marginTop:0}} placeholder="Description" value={it.name||""} onChange={ev=>{const ns=[...(fmQ.items||[])];ns[i]={...ns[i],name:ev.target.value};setFmQ(f=>({...f,items:ns}));}}/>
+                <input type="number" style={{...IS,marginTop:0}} placeholder="Qté" value={it.qty||1} onChange={ev=>{const ns=[...(fmQ.items||[])];ns[i]={...ns[i],qty:parseFloat(ev.target.value)||1};setFmQ(f=>({...f,items:ns}));}}/>
+                <input type="number" style={{...IS,marginTop:0}} placeholder="Prix" value={it.price||""} onChange={ev=>{const ns=[...(fmQ.items||[])];ns[i]={...ns[i],price:parseFloat(ev.target.value)||0};setFmQ(f=>({...f,items:ns}));}}/>
+                <button onClick={()=>{const ns=(fmQ.items||[]).filter((_,j)=>j!==i);setFmQ(f=>({...f,items:ns.length?ns:[{id:xid(),name:"",qty:1,price:0}]}));}} style={{ background:"rgba(255,34,85,.1)", border:"none", color:T.red, borderRadius:7, padding:"7px 9px", cursor:"pointer", fontSize:11 }}>🗑</button>
+              </div>
+            ))}
+            <button onClick={()=>setFmQ(f=>({...f,items:[...(f.items||[]),{id:xid(),name:"",qty:1,price:0}]}))} style={{ background:"rgba(0,212,120,.08)", border:`1px dashed ${T.gr}33`, borderRadius:8, padding:"6px 13px", color:T.gr, cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:600, width:"100%", marginTop:3 }}>+ Ajouter un article</button>
+            {(fmQ.items||[]).some(it=>it.price>0) && (
+              <div style={{ textAlign:"right", marginTop:7, fontWeight:700, color:T.gold, fontSize:13 }}>
+                Total : {fmtPrice((fmQ.items||[]).reduce((s,it)=>s+(it.qty||1)*(it.price||0),0)+(fmQ.tax||0), fmQ.currency||DEFAULT_CURRENCY)}
+              </div>
+            )}
+          </div>
+          <FL l="Notes / conditions" ch={<textarea style={{...IS,height:55,resize:"vertical"}} placeholder="Conditions, remarques…" value={fmQ.notes||""} onChange={ev=>setFmQ(f=>({...f,notes:ev.target.value}))}/>}/>
+          <div style={{ display:"flex", gap:7, marginTop:13 }}>
+            <Btn dis={savingQ} ch={savingQ?"⏳…":mdlQ==="edit"?"✅ Modifier":"✅ Créer le devis"} onClick={saveQuote}/>
+            <Btn v="g" ch={t("cancel")} onClick={()=>{setMdlQ(null);setFmQ({});}}/>
+          </div>
+        </Modal>
+      </div>
+    );
+  };
+
+  // ══════════════════════════════════════════════════════════
+  //  MODULE RENDEZ-VOUS
+  //  - CRUD rendez-vous (Supabase : table "appointments")
+  //  - Liste chronologique groupée par jour, rappel WhatsApp 1 clic
+  // ══════════════════════════════════════════════════════════
+  const RDV_STATUS = {
+    planifie: { lb:"🗓️ Planifié",  col:T.blue },
+    confirme: { lb:"✅ Confirmé",  col:T.gr },
+    termine:  { lb:"✔️ Terminé",   col:T.sub },
+    annule:   { lb:"🔴 Annulé",    col:T.red },
+  };
+
+  const rdvDateLabel = (dateStr) => {
+    const d = new Date(dateStr+"T00:00:00");
+    const now = new Date(); now.setHours(0,0,0,0);
+    const diffDays = Math.round((d-now)/86400000);
+    if (diffDays===0) return "Aujourd'hui";
+    if (diffDays===1) return "Demain";
+    if (diffDays===-1) return "Hier";
+    return d.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"}).replace(/^./,c=>c.toUpperCase());
+  };
+
+  const PgRdv = () => {
+    const [appts, setAppts] = useState([]);
+    const [loadingA, setLoadingA] = useState(true);
+    const [mdlA, setMdlA] = useState(null); // "add"|"edit"
+    const [fmA, setFmA] = useState({});
+    const [savingA, setSavingA] = useState(false);
+
+    // Préremplissage depuis la fiche client (bouton "📅 RDV"), via le
+    // canal partagé fm/setFm déjà utilisé ailleurs dans l'app pour ce
+    // genre de pont entre pages (voir onCreateInvoice du Réseau).
+    useEffect(() => {
+      if (fm._prefillRdv) {
+        setFmA({ date: today(), status:"planifie", ...fm._prefillRdv });
+        setMdlA("add");
+        setFm({});
+      }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const loadAppts = async () => {
+      setLoadingA(true);
+      try {
+        const s = await getSupa();
+        const { data, error } = await s.from("appointments").select("*").eq("user_id", uid).order("date",{ascending:true}).order("time",{ascending:true});
+        if (!error && data) setAppts(data.map(r => ({
+          id:r.id, clientId:r.client_id||"", clientName:r.client_name||"", phone:r.phone||"",
+          title:r.title||"", date:r.date||today(), time:r.time||"",
+          status:r.status||"planifie", notes:r.notes||"", is_example:!!r.is_example,
+        })));
+      } catch(e) { console.error("appointments load:", e); }
+      finally { setLoadingA(false); }
+    };
+    useEffect(() => { loadAppts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [uid]);
+
+    const validateA = () => {
+      if (!fmA.title?.trim()) { toast("⚠️ Le titre du rendez-vous est obligatoire", "err"); return false; }
+      if (!fmA.date) { toast("⚠️ La date est obligatoire", "err"); return false; }
+      return true;
+    };
+
+    const saveAppt = async () => {
+      if (!validateA()) return;
+      setSavingA(true);
+      const a = {
+        id: fmA._edit ? fmA.id : xid(),
+        clientId: fmA.clientId||"", clientName: fmA.clientName||"", phone: fmA.phone||"",
+        title: fmA.title.trim(), date: fmA.date, time: fmA.time||"",
+        status: fmA.status||"planifie", notes: fmA.notes||"",
+      };
+      if (fmA._edit) {
+        const prevA = appts.find(x => x.id===a.id);
+        setAppts(prev => prev.map(x => x.id===a.id?a:x).sort((x,y)=>(x.date+x.time).localeCompare(y.date+y.time)));
+        setMdlA(null); setFmA({});
+        try {
+          const s = await getSupa();
+          const { error } = await s.from("appointments").update({
+            client_id:a.clientId, client_name:a.clientName, phone:a.phone,
+            title:a.title, date:a.date, time:a.time, status:a.status, notes:a.notes,
+          }).eq("id", a.id);
+          if (error) { if(prevA) setAppts(prev=>prev.map(x=>x.id===a.id?prevA:x)); toast("❌ Modification non sauvegardée, réessayez", "err"); console.error(error); }
+          else toast("✅ Rendez-vous modifié !");
+        } catch(e) { if(prevA) setAppts(prev=>prev.map(x=>x.id===a.id?prevA:x)); toast("❌ Erreur réseau", "err"); }
+        setSavingA(false);
+        return;
+      }
+      setAppts(prev => [...prev, a].sort((x,y)=>(x.date+x.time).localeCompare(y.date+y.time)));
+      setFlashId(a.id);
+      setMdlA(null); setFmA({});
+      try {
+        const s = await getSupa();
+        const { error } = await s.from("appointments").insert({
+          id:a.id, user_id:uid, client_id:a.clientId, client_name:a.clientName, phone:a.phone,
+          title:a.title, date:a.date, time:a.time, status:a.status, notes:a.notes,
+        });
+        if (error) { setAppts(prev => prev.filter(x=>x.id!==a.id)); toast("❌ Erreur sauvegarde, réessayez", "err"); console.error(error); }
+        else { toast("📅 Rendez-vous planifié !"); markUserActive(uid); }
+      } catch(e) { setAppts(prev => prev.filter(x=>x.id!==a.id)); toast("❌ Erreur réseau", "err"); }
+      setSavingA(false);
+    };
+
+    const deleteAppt = (a) => {
+      setConfirm({
+        title: "🗑 Supprimer le rendez-vous",
+        msg: `Supprimer « ${a.title} » ?`,
+        confirmLabel: "Supprimer", danger: true,
+        onConfirm: async () => {
+          setAppts(prev => prev.filter(x=>x.id!==a.id));
+          setConfirm(null);
+          const ok = await supaDelete("appointments", a.id);
+          if (!ok) { setAppts(prev => [...prev, a]); toast("❌ Suppression échouée, réessayez", "err"); return; }
+          toast("🗑 Rendez-vous supprimé", "warn");
+        },
+      });
+    };
+
+    const setApptStatus = async (a, status) => {
+      setAppts(prev => prev.map(x => x.id===a.id?{...x,status}:x));
+      try {
+        const s = await getSupa();
+        const { error } = await s.from("appointments").update({ status }).eq("id", a.id);
+        if (error) { toast("❌ Erreur mise à jour du statut", "err"); console.error(error); }
+      } catch(e) { toast("❌ Erreur réseau", "err"); }
+    };
+
+    const sendApptWA = (a) => {
+      const ph = cleanP(a.phone);
+      if (!ph) { toast("⚠️ Aucun numéro de téléphone pour ce contact", "err"); return; }
+      const when = `${a.date}${a.time?` à ${a.time}`:""}`;
+      const msg = encodeURIComponent(`Bonjour${a.clientName?" "+a.clientName.split(" ")[0]:""}, petit rappel pour votre rendez-vous « ${a.title} » le ${when}. À bientôt !`);
+      window.open(`https://wa.me/${ph}?text=${msg}`, "_blank");
+    };
+
+    // Groupe les rendez-vous par date, dans l'ordre chronologique
+    const groups = appts.reduce((acc, a) => {
+      (acc[a.date] = acc[a.date] || []).push(a);
+      return acc;
+    }, {});
+    const sortedDates = Object.keys(groups).sort();
+
+    return (
+      <div style={{ animation:"slideUp .3s ease both" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16, flexWrap:"wrap", gap:8 }}>
+          <div>
+            <div style={{ fontWeight:900, fontSize:22, letterSpacing:"-.03em" }}>📅 Rendez-vous</div>
+            <div style={{ fontSize:11, color:T.sub2, marginTop:2 }}>{appts.length} rendez-vous planifiés</div>
+          </div>
+          <Btn ch="+ Planifier" onClick={() => { setFmA({ date:today(), status:"planifie" }); setMdlA("add"); }}/>
+        </div>
+
+        {loadingA ? (
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {[0,1,2].map(k=>{
+              const shimmer={ background:`linear-gradient(90deg,${T.c2} 25%,${T.c3} 50%,${T.c2} 75%)`, backgroundSize:"200% 100%", animation:"skeletonShimmer 1.4s ease infinite" };
+              return <div key={k} style={{ height:64, borderRadius:14, ...shimmer }}/>;
+            })}
+          </div>
+        ) : appts.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"3rem 1.5rem", background:T.c1, border:`1px solid ${T.border}`, borderRadius:20 }}>
+            <div style={{ fontSize:52, marginBottom:12 }}>📅</div>
+            <div style={{ fontWeight:800, fontSize:15, marginBottom:6 }}>Aucun rendez-vous</div>
+            <div style={{ fontSize:12, color:T.sub2, marginBottom:16, lineHeight:1.6 }}>Planifiez vos rendez-vous clients et envoyez un rappel WhatsApp en un clic.</div>
+            <Btn ch="+ Planifier un rendez-vous" onClick={() => { setFmA({ date:today(), status:"planifie" }); setMdlA("add"); }}/>
+          </div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:18 }}>
+            {sortedDates.map(dateStr => (
+              <div key={dateStr}>
+                <div style={{ fontSize:11, fontWeight:800, color:accent, textTransform:"uppercase", letterSpacing:".06em", marginBottom:9 }}>{rdvDateLabel(dateStr)}</div>
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  {groups[dateStr].map(a => {
+                    const st = RDV_STATUS[a.status] || RDV_STATUS.planifie;
+                    return (
+                      <div key={a.id} style={{ background:T.c1, border:`1px solid ${T.border}`, borderRadius:14, padding:"12px 14px", animation:flashId===a.id?"flashGreen .7s ease":"none", opacity:a.status==="annule"?.55:1 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                          <div style={{ width:44, textAlign:"center", flexShrink:0 }}>
+                            <div style={{ fontWeight:900, fontSize:13, color:accent }}>{a.time||"—"}</div>
+                          </div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                              <div style={{ fontWeight:800, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.title}</div>
+                              {a.is_example && <ExampleBadge/>}
+                            </div>
+                            {a.clientName && <div style={{ fontSize:10.5, color:T.sub2, marginTop:1 }}>👤 {a.clientName}</div>}
+                          </div>
+                          <span style={{ background:`${st.col}18`, color:st.col, borderRadius:20, padding:"2px 8px", fontSize:9, fontWeight:700, flexShrink:0 }}>{st.lb}</span>
+                        </div>
+                        <div style={{ display:"flex", gap:5, marginTop:9, flexWrap:"wrap" }}>
+                          {a.status!=="termine" && a.status!=="annule" && (
+                            <button onClick={()=>setApptStatus(a,"confirme")} style={{ flex:1, minWidth:70, background:"rgba(0,212,120,.1)", border:"none", color:T.gr, borderRadius:7, padding:"6px 4px", cursor:"pointer", fontSize:9.5, fontWeight:700 }}>✅ Confirmer</button>
+                          )}
+                          {a.status!=="termine" && a.status!=="annule" && (
+                            <button onClick={()=>setApptStatus(a,"termine")} style={{ flex:1, minWidth:70, background:T.c2, border:`1px solid ${T.border}`, color:T.sub2, borderRadius:7, padding:"6px 4px", cursor:"pointer", fontSize:9.5, fontWeight:700 }}>✔️ Terminé</button>
+                          )}
+                          <button disabled={!a.phone} onClick={()=>sendApptWA(a)} style={{ flex:1, minWidth:70, background:"rgba(37,211,102,.13)", border:"1px solid rgba(37,211,102,.3)", color:"#25D366", borderRadius:7, padding:"6px 4px", cursor:a.phone?"pointer":"not-allowed", fontSize:9.5, fontWeight:700, opacity:a.phone?1:.4 }}>📲 Rappel</button>
+                          <button onClick={()=>{ setFmA({...a,_edit:true}); setMdlA("edit"); }} style={{ background:"rgba(26,120,255,.07)", border:"none", color:T.blue, borderRadius:7, padding:"6px 9px", cursor:"pointer", fontSize:9.5, fontWeight:700 }}>✏️</button>
+                          <button onClick={()=>deleteAppt(a)} style={{ background:"rgba(255,34,85,.08)", border:"none", color:T.red, borderRadius:7, padding:"6px 9px", cursor:"pointer", fontSize:9.5 }}>🗑</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── MODAL : Ajouter / Modifier rendez-vous ── */}
+        <Modal open={mdlA==="add"||mdlA==="edit"} onClose={()=>{setMdlA(null);setFmA({});}} title={mdlA==="edit"?"✏️ Modifier le rendez-vous":"📅 Nouveau rendez-vous"}>
+          <FL l="Titre *" ch={
+            <input style={IS} placeholder="Ex : Visite atelier, livraison…" value={fmA.title||""} onChange={ev=>setFmA(f=>({...f,title:ev.target.value}))}/>
+          }/>
+          <FL l="Client (optionnel)" ch={<><input type="text" style={IS} placeholder="Nom du client" value={fmA.clientName||""} onChange={ev=>{const n=ev.target.value;const cl=clis.find(c=>c.name.toLowerCase()===n.toLowerCase());setFmA(f=>({...f,clientName:n,clientId:cl?.id||"",phone:cl?.phone||f.phone||""}));}} list="cl_rdv"/><datalist id="cl_rdv">{clis.map(c=><option key={c.id} value={c.name}/>)}</datalist></>}/>
+          <FL l="Téléphone" ch={<input type="tel" style={IS} placeholder="+225 07 000 0000" value={fmA.phone||""} onChange={ev=>setFmA(f=>({...f,phone:ev.target.value}))}/>}/>
+          <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:10 }}>
+            <FL l="Date *" ch={<input type="date" style={IS} value={fmA.date||today()} onChange={ev=>setFmA(f=>({...f,date:ev.target.value}))}/>}/>
+            <FL l="Heure" ch={<input type="time" style={IS} value={fmA.time||""} onChange={ev=>setFmA(f=>({...f,time:ev.target.value}))}/>}/>
+          </div>
+          <FL l="Statut">
+            <select style={IS} value={fmA.status||"planifie"} onChange={ev=>setFmA(f=>({...f,status:ev.target.value}))}>
+              {Object.entries(RDV_STATUS).map(([k,v])=><option key={k} value={k}>{v.lb}</option>)}
+            </select>
+          </FL>
+          <FL l="Notes (optionnel)" ch={<textarea style={{...IS,height:55,resize:"vertical"}} placeholder="Détails, adresse, matériel à prévoir…" value={fmA.notes||""} onChange={ev=>setFmA(f=>({...f,notes:ev.target.value}))}/>}/>
+          <div style={{ display:"flex", gap:7, marginTop:6 }}>
+            <Btn dis={savingA} ch={savingA?"⏳…":mdlA==="edit"?"✅ Modifier":"✅ Planifier"} onClick={saveAppt}/>
+            <Btn v="g" ch={t("cancel")} onClick={()=>{setMdlA(null);setFmA({});}}/>
+          </div>
+        </Modal>
+      </div>
+    );
+  };
+
   const PgCli=()=>(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:11,flexWrap:"wrap",gap:7}}>
@@ -4651,10 +5249,16 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
               <button title="Email" disabled={!cl.email} onClick={()=>{const subj=encodeURIComponent(`${ses.business||"VierAfrik"} — Contact`);const body=encodeURIComponent(`Bonjour ${cl.name.split(" ")[0]},\n\n`);window.open(`mailto:${cl.email}?subject=${subj}&body=${body}`,"_self");}} style={{flex:1,background:"rgba(240,176,32,.1)",border:"none",color:T.gold,borderRadius:7,padding:"5px",cursor:cl.email?"pointer":"not-allowed",fontSize:10,fontWeight:700,opacity:cl.email?1:.4}}>✉️</button>
               <button title="Supprimer" onClick={()=>{setConfirm({title:"🗑 Supprimer le client",msg:`Supprimer ${cl.name} de votre liste clients ?`,confirmLabel:"Supprimer",danger:true,onConfirm:async()=>{setClis(prev=>prev.filter(x=>x.id!==cl.id));setConfirm(null);const ok=await supaDelete("clients",cl.id);if(!ok){setClis(prev=>[cl,...prev]);toast("❌ Suppression échouée, réessayez.","err");return;}toast("🗑 "+cl.name+" supprimé","warn");}});}} style={{background:"rgba(255,34,85,.1)",border:"none",color:T.red,borderRadius:7,padding:"5px 9px",cursor:"pointer",fontSize:10}}>🗑</button>
             </div>
-            <button title="Créer une facture pour ce client" onClick={()=>{setFm({clientName:cl.name,clientId:cl.id,phone:cl.phone||"",issued:today(),status:"pending",tax:0,currency:DEFAULT_CURRENCY,items:[{id:xid(),name:"",qty:1,price:0}]});setMdl("inv");}}
-              style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:`${accent}12`,border:`1px solid ${accent}33`,color:accent,borderRadius:7,padding:"6px",cursor:"pointer",fontSize:10.5,fontWeight:700}}>
-              🧾 Créer une facture
-            </button>
+            <div style={{display:"flex",gap:4}}>
+              <button title="Créer une facture pour ce client" onClick={()=>{setFm({clientName:cl.name,clientId:cl.id,phone:cl.phone||"",issued:today(),status:"pending",tax:0,currency:DEFAULT_CURRENCY,items:[{id:xid(),name:"",qty:1,price:0}]});setMdl("inv");}}
+                style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:5,background:`${accent}12`,border:`1px solid ${accent}33`,color:accent,borderRadius:7,padding:"6px",cursor:"pointer",fontSize:10,fontWeight:700}}>
+                🧾 Facture
+              </button>
+              <button title="Planifier un rendez-vous pour ce client" onClick={()=>{setFm({_prefillRdv:{clientName:cl.name,clientId:cl.id,phone:cl.phone||""}});setPage("rdv");}}
+                style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:5,background:`${T.purple}12`,border:`1px solid ${T.purple}33`,color:T.purple,borderRadius:7,padding:"6px",cursor:"pointer",fontSize:10,fontWeight:700}}>
+                📅 RDV
+              </button>
+            </div>
           </div>
         ))}
         {clis.length===0&&(
@@ -6846,7 +7450,9 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     {id:"dash",  ic:"📊",lb:t("navDash").replace("📊 ",""),     grp:"Gérer"},
     {id:"tx",    ic:"💸",lb:t("navTx").replace("💸 ",""),       grp:"Gérer"},
     {id:"inv",   ic:"🧾",lb:t("navInv").replace("🧾 ",""),      grp:"Gérer"},
+    {id:"devis", ic:"📝",lb:"Devis",                            grp:"Gérer"},
     {id:"cli",   ic:"👥",lb:t("navCli").replace("👥 ",""),      grp:"Gérer"},
+    {id:"rdv",   ic:"📅",lb:"Rendez-vous",                      grp:"Gérer"},
     {id:"produits",ic:"📦",lb:"Produits",                       grp:"Gérer"},
     {id:"boutique",ic:"🛍️",lb:"Boutique",                      grp:"Gérer"},
     {id:"emp",   ic:"👷",lb:"Employés",                         grp:"Gérer"},
@@ -8161,7 +8767,9 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
     switch(page){
       case "tx":     return <PgTx/>;
       case "inv":    return <PgInv/>;
+      case "devis":  return <PgDevis/>;
       case "cli":    return <PgCli/>;
+      case "rdv":    return <PgRdv/>;
       case "emp":    return <PgEmployees/>;
       case "produits": return <PgProduits/>;
       case "boutique": return <PgBoutique/>;
