@@ -4055,6 +4055,42 @@ function Dashboard({ses,logout,updSes}){
     trackUsage(); // v34
   };
 
+  // ── Reçu PDF + rappel WhatsApp pour une transaction (vente ou dépense) ──
+  const genTxPDF = (t) => {
+    if (!plan.pdf && !isAdmin) { toast("PDF disponible en plan Pro 🚀", "warn"); return; }
+    const isVente = t.type==="sale";
+    const col = isVente ? "#00d478" : "#ff2255";
+    const fp = n => fmtf(n);
+    doPrint(`
+<style>#print-area *{box-sizing:border-box}#print-area{font-family:sans-serif;padding:40px;max-width:600px;margin:0 auto;font-size:13px;color:#111;background:#fff}
+#print-area .hdr{text-align:center;border-bottom:3px solid ${col};padding-bottom:16px;margin-bottom:20px}
+#print-area .brand{font-size:22px;font-weight:900}#print-area .brand b{color:${col}}
+#print-area .badge{display:inline-block;margin-top:8px;padding:4px 14px;border-radius:20px;font-size:11px;font-weight:800;background:${isVente?"#e6fff4":"#ffe0e6"};color:${isVente?"#0a6e3d":"#8b0020"}}
+#print-area .row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #eee}
+#print-area .lbl{color:#888;font-size:12px}#print-area .val{font-weight:700;font-size:13px}
+#print-area .amount{text-align:center;margin:20px 0;padding:18px;border-radius:12px;background:${isVente?"#f0fff8":"#fff0f3"};border:2px solid ${col}}
+#print-area .amount .n{font-size:30px;font-weight:900;color:${isVente?"#00a85e":"#c8003c"}}
+#print-area .foot{margin-top:24px;padding-top:14px;border-top:1px solid #eee;text-align:center;color:#aaa;font-size:10px}
+@media print{#print-area{padding:22px}}</style>
+<div class="hdr"><div class="brand">🌍 Vier<b>Afrik</b></div><div style="color:#555;margin-top:4px">${ses.business||"Mon Entreprise"}</div>
+<div class="badge">${isVente?"✅ REÇU DE VENTE":"📤 REÇU DE DÉPENSE"}</div></div>
+<div class="row"><div class="lbl">${isVente?"Client":"Fournisseur"}</div><div class="val">${t.who||"-"}</div></div>
+<div class="row"><div class="lbl">Catégorie</div><div class="val">${t.cat}</div></div>
+<div class="row"><div class="lbl">Date</div><div class="val">${t.date}</div></div>
+${t.note?`<div class="row"><div class="lbl">Note</div><div class="val">${t.note}</div></div>`:""}
+<div class="amount"><div class="n">${isVente?"+":"-"}${fp(t.amount)}</div></div>
+<div class="foot">VierAfrik · Gagne de l'argent en Afrique 🌍 · ${today()}</div>
+`, `${isVente?"Recu-vente":"Recu-depense"}-${(t.who||"transaction").replace(/\s+/g,"-")}.pdf`);
+  };
+
+  const sendTxWA = (t, phone) => {
+    const ph = cleanP(phone);
+    if (!ph) { toast("⚠️ Aucun numéro de téléphone trouvé pour ce client", "err"); return; }
+    const isVente = t.type==="sale";
+    const msg = encodeURIComponent(`Bonjour ${(t.who||"").split(" ")[0]}, voici le reçu de ${isVente?"votre achat":"paiement"} : ${fmtf(t.amount)} le ${t.date}. Merci ${isVente?"pour votre confiance":""} !`);
+    window.open(`https://wa.me/${ph}?text=${msg}`, "_blank");
+  };
+
   // PDF
   const genPDF=inv=>{
     if(!plan.pdf&&!isAdmin){toast("PDF disponible en plan Pro 🚀","warn");return;}
@@ -4622,6 +4658,58 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     </div>
   );
 
+  // Tx Cards Component (haut niveau : reçu PDF, WhatsApp, détails)
+  const TxCards=({rows})=>(
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))",gap:9}}>
+      {rows.map(t=>{
+        const isVente=t.type==="sale";
+        const col=isVente?T.gr:T.red;
+        const cli=clis.find(c=>(c.name||"").toLowerCase()===(t.who||"").toLowerCase());
+        return(
+        <div key={t.id} style={{background:T.c2,border:`1px solid ${T.border}`,borderRadius:15,padding:"1rem",position:"relative",overflow:"hidden",transition:"all .2s",animation:flashId===t.id?"flashGreen .7s ease":"none"}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=col+"55";e.currentTarget.style.transform="translateY(-2px)";}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.transform="";}}>
+          <div style={{position:"absolute",bottom:0,left:0,right:0,height:3,background:col}}/>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:7}}>
+            <div>
+              <div style={{fontSize:9,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:".07em"}}>{t.cat}</div>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <div style={{fontWeight:800,fontSize:13,marginTop:1}}>{t.who||"-"}</div>
+                {t.is_example&&<ExampleBadge/>}
+              </div>
+            </div>
+            <span style={{background:col+"1a",color:col,borderRadius:20,padding:"2px 8px",fontSize:9,fontWeight:700,flexShrink:0}}>{isVente?"↑ Vente":"↓ Dépense"}</span>
+          </div>
+
+          <div style={{marginBottom:8}}>
+            <div style={{fontSize:21,fontWeight:900,color:col,letterSpacing:"-.02em"}}>{isVente?"+":"-"}{fmtf(t.amount)}</div>
+          </div>
+
+          <div style={{fontSize:10,color:T.sub2,marginBottom:7}}>📅 {t.date}{t.note?` · ${t.note}`:""}{cli?.phone?` · 📞 ${cli.phone}`:""}</div>
+
+          <div style={{display:"flex",gap:3,flexWrap:"wrap",marginBottom:4}}>
+            <button onClick={()=>genTxPDF(t)} style={{flex:1,background:"rgba(26,120,255,.1)",border:"none",color:T.blue,borderRadius:7,padding:"5px",cursor:"pointer",fontSize:10,fontWeight:700}}>📄 PDF</button>
+            <button onClick={()=>sendTxWA(t,cli?.phone||t.phone)} style={{flex:1,background:"rgba(37,211,102,.13)",border:"1px solid rgba(37,211,102,.3)",color:"#25D366",borderRadius:9,padding:"10px 6px",cursor:"pointer",fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><WhatsAppIcon size={16}/> WhatsApp</button>
+            {cli?.phone&&<button onClick={()=>window.open(`mailto:?subject=${encodeURIComponent("Reçu "+(isVente?"vente":"dépense"))}&body=${encodeURIComponent(`${t.who||""} - ${fmtf(t.amount)} le ${t.date}`)}`,"_blank")} style={{flex:1,background:"rgba(240,176,32,.1)",border:"none",color:T.gold,borderRadius:7,padding:"5px",cursor:"pointer",fontSize:10,fontWeight:700}}>✉️ Mail</button>}
+          </div>
+          <div style={{display:"flex",gap:3}}>
+            <button onClick={()=>{setFm({...t,_edit:true});setMdl("tx");}} style={{flex:1,background:"rgba(26,120,255,.07)",border:"none",color:T.blue,borderRadius:7,padding:"4px",cursor:"pointer",fontSize:10,fontWeight:700}}>✏️ Modifier</button>
+            <button onClick={()=>{setConfirm({title:"🗑 Supprimer la transaction",msg:`Supprimer cette transaction de ${fmtf(t.amount)} ?`,confirmLabel:"Supprimer",danger:true,onConfirm:async()=>{const n=txs.filter(x=>x.id!==t.id);setTxs(n);await supaDelete("transactions",t.id);toast("Supprimée","warn");setConfirm(null);}});}} style={{background:"rgba(255,34,85,.08)",border:"none",color:T.red,borderRadius:7,padding:"4px 9px",cursor:"pointer",fontSize:10}}>🗑</button>
+          </div>
+        </div>
+        );
+      })}
+      {rows.length===0&&(
+        <div style={{gridColumn:"1/-1",textAlign:"center",padding:"3rem 1.5rem",background:T.c1,border:`1px solid ${T.border}`,borderRadius:20}}>
+          <div style={{fontSize:52,marginBottom:12}}>💸</div>
+          <div style={{fontWeight:800,fontSize:15,marginBottom:6}}>Aucune transaction</div>
+          <div style={{fontSize:12,color:T.sub2,marginBottom:16,lineHeight:1.6}}>Enregistrez vos ventes et dépenses pour suivre votre activité au jour le jour.</div>
+          <Btn ch="+ Ajouter" onClick={()=>{setFm({type:"sale",cat:"Commerce",date:today()});setMdl("tx");}}/>
+        </div>
+      )}
+    </div>
+  );
+
   const PgTx=()=>{
     const filtered=txs.filter(t=>{
       if(flt.txType&&t.type!==flt.txType)return false;
@@ -4645,9 +4733,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             </select>
           </div>
         </div>
-        <div style={{background:T.c1,border:`1px solid ${T.border}`,borderRadius:12,padding:".9rem"}}>
-          <TxTable rows={filtered} editable/>
-        </div>
+        <TxCards rows={filtered}/>
       </div>
     );
   };
