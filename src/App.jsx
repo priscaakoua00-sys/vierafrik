@@ -519,20 +519,20 @@ async function seed(uid){
     {id:xid(),user_id:uid,type:"sale",   amount:870000, category:"Commerce",    who:"Fatou Diallo",    date:`${lm}-15`,note:""},
     {id:xid(),user_id:uid,type:"expense",amount:210000, category:"Salaires",    who:"Équipe VA",       date:`${lm}-10`,note:""},
     {id:xid(),user_id:uid,type:"sale",   amount:540000, category:"Alimentation",who:"Marché Central",  date:`${lm}-08`,note:""},
-  ];
+  ].map(r=>({...r, is_example:true}));
   const cliData=[
     {id:xid(),user_id:uid,name:"Ama Owusu",     phone:"+233240001111",email:"ama@email.com",    country:"GH",city:"Accra", category:"Commerce",    status:"active",  revenue:1730000},
     {id:xid(),user_id:uid,name:"TechLagos Inc", phone:"+234800002222",email:"tech@lagos.ng",    country:"NG",city:"Lagos", category:"Services",    status:"active",  revenue:3950000},
     {id:xid(),user_id:uid,name:"Marché Central",phone:"+225070003333",email:"",                 country:"CI",city:"Abidjan",category:"Alimentation",status:"inactive",revenue:1215000},
     {id:xid(),user_id:uid,name:"Fatou Diallo",  phone:"+221770004444",email:"fatou@sn.com",     country:"SN",city:"Dakar", category:"Commerce",    status:"active",  revenue:1270000},
     {id:xid(),user_id:uid,name:"StartupDakar",  phone:"+221780005555",email:"hello@startup.sn", country:"SN",city:"Dakar", category:"Services",    status:"active",  revenue:1100000},
-  ];
+  ].map(r=>({...r, is_example:true}));
   const invData=[
     {id:xid(),user_id:uid,number:`VAF-${y}-0001`,client_name:"TechLagos Inc",  phone:"+234800002222",total:1850000,subtotal:1850000,tax:0,status:"paid",   issued:d(12),due:d(28),items:JSON.stringify([{id:xid(),name:"Consulting mensuel",qty:1,price:1850000,line:1850000}]),notes:""},
     {id:xid(),user_id:uid,number:`VAF-${y}-0002`,client_name:"Ama Owusu",      phone:"+233240001111",total:950000, subtotal:950000, tax:0,status:"paid",   issued:d(11),due:d(25),items:JSON.stringify([{id:xid(),name:"Produits commerce",qty:1,price:950000,line:950000}]),notes:""},
     {id:xid(),user_id:uid,number:`VAF-${y}-0003`,client_name:"StartupDakar",   phone:"+221780005555",total:1100000,subtotal:1100000,tax:0,status:"pending", issued:d(5), due:d(20),items:JSON.stringify([{id:xid(),name:"Design Sprint 3j",qty:3,price:366667,line:1100001}]),notes:""},
     {id:xid(),user_id:uid,number:`VAF-${y}-0004`,client_name:"Marché Central", phone:"+225070003333",total:675000, subtotal:675000, tax:0,status:"overdue", issued:d(1), due:d(8), items:JSON.stringify([{id:xid(),name:"Livraison alimentaire",qty:1,price:675000,line:675000}]),notes:""},
-  ];
+  ].map(r=>({...r, is_example:true}));
   const s=await getSupa();
   const [resTx, resCli, resInv] = await Promise.all([
     s.from("transactions").insert(txData),
@@ -544,7 +544,52 @@ async function seed(uid){
   if(resInv.error) console.warn("[seed] invoices insert error:", resInv.error.message);
 }
 
+// ── Exemples Produits & Employés, une seule fois par compte ──
+// Même logique anti-double-seed que seed() (flag dans user_metadata),
+// mais indépendante : se déclenche même sur un compte déjà actif qui
+// n'a jamais ouvert ces modules-là. Les lignes créées sont des vraies
+// lignes de l'utilisateur (is_example:true) : modifiables et supprimables
+// comme n'importe quelle autre, ce n'est pas un contenu figé.
+async function seedModuleExamples(uid){
+  try {
+    const s0 = await getSupa();
+    const { data: { user } } = await s0.auth.getUser();
+    if (user?.user_metadata?.seeded_examples_v2) return;
+    await s0.auth.updateUser({ data: { seeded_examples_v2: true } });
+  } catch(_e) { return; }
+
+  try {
+    const s = await getSupa();
+    await s.from("products").insert({
+      id: xid(), user_id: uid,
+      name: "Sac de riz 25kg (exemple)",
+      description: "Ceci est un produit d'exemple pour vous montrer comment ça marche. Modifiez-le ou supprimez-le librement.",
+      price: 15000, currency: "XOF",
+      stock_qty: 12, low_stock_threshold: 3,
+      image_url: "", category: "Alimentation", active: true,
+      is_example: true, created_at: new Date().toISOString(),
+    });
+  } catch(e) { console.warn("[seedModuleExamples] products:", e); }
+
+  try {
+    const s = await getSupa();
+    await s.from("employees").insert({
+      id: xid(), user_id: uid,
+      name: "Employé exemple", phone: "",
+      salary: 50000, currency: "XOF", role: "Employé",
+      has_access: false, access_pin: null,
+      is_example: true, created_at: new Date().toISOString(),
+    });
+  } catch(e) { console.warn("[seedModuleExamples] employees:", e); }
+}
+
 // ── UI Atoms ──
+// Badge réutilisé partout (Transactions, Factures, Clients, Employés,
+// Produits) pour signaler une ligne d'exemple, modifiable/supprimable
+// comme les autres — même principe que le badge du Comparateur de prix.
+const ExampleBadge=({sx={}})=>(
+  <span style={{fontSize:8.5,fontWeight:800,color:T.gold,background:`${T.gold}18`,border:`1px solid ${T.gold}33`,borderRadius:20,padding:"2px 8px",flexShrink:0,whiteSpace:"nowrap",...sx}}>💡 Exemple</span>
+);
 const IS={width:"100%",padding:"11px 14px",background:T.c3,border:`1px solid ${T.border}`,borderRadius:11,color:T.text,fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",fontSize:13,outline:"none",marginTop:5,transition:"all .2s"};
 const FL=({l,ch,err,hint})=>(
   <div style={{marginBottom:12}}>
@@ -3015,6 +3060,10 @@ function Dashboard({ses,logout,updSes}){
   const [installEvt,setInstallEvt]=useState(null); // événement beforeinstallprompt capturé (Android/Chrome/Edge)
   const [showInstallBar,setShowInstallBar]=useState(false);
   const [isIosInstall,setIsIosInstall]=useState(false);
+  const [showExamplesTip,setShowExamplesTip]=useState(()=>{
+    try { return localStorage.getItem("vaf_examples_tip_dismissed")!=="1"; } catch(_e) { return true; }
+  });
+  const dismissExamplesTip=()=>{ setShowExamplesTip(false); try{ localStorage.setItem("vaf_examples_tip_dismissed","1"); }catch(_e){} };
   // FIX v31 #1, toastRef permet d'appeler toast() depuis loadAll (useEffect)
   const toastRef=useRef(null);
 
@@ -3291,12 +3340,14 @@ function Dashboard({ses,logout,updSes}){
         // Normaliser transactions
         setTxs(rawTxs.map(r=>({
           id:r.id,uid:r.user_id,type:r.type,amount:parseFloat(r.amount)||0,
-          cat:r.category||"Commerce",who:r.who||"",date:r.date||today(),note:r.note||""
+          cat:r.category||"Commerce",who:r.who||"",date:r.date||today(),note:r.note||"",
+          is_example:!!r.is_example,
         })));
         // Normaliser clients
         setClis(rawClis.map(r=>({
           id:r.id,uid:r.user_id,name:r.name,phone:r.phone||"",email:r.email||"",
-          pays:normalizeLegacyCountry(r.country)||"CI",ville:r.city||"",cat:r.category||"Commerce",status:r.status||"active",ca:parseFloat(r.revenue)||0
+          pays:normalizeLegacyCountry(r.country)||"CI",ville:r.city||"",cat:r.category||"Commerce",status:r.status||"active",ca:parseFloat(r.revenue)||0,
+          is_example:!!r.is_example,
         })));
         // Normaliser factures
         setInvs(rawInvs.map(r=>({
@@ -3308,9 +3359,15 @@ function Dashboard({ses,logout,updSes}){
           items:typeof r.items==="string"?JSON.parse(r.items||"[]"):r.items||[],
           notes:r.notes||"",payStatus:r.status==="paid"?"paid":"unpaid",payRef:"",payProv:"",
           amtPaid:parseFloat(r.amt_paid)||0,
+          is_example:!!r.is_example,
         })));
         // v34, Charger usage_count (non bloquant)
         try{const s2=await getSupa();const{data:ua}=await s2.from("user_activity").select("usage_count").eq("user_id",uid).maybeSingle();if(ua?.usage_count)setUsageCount(ua.usage_count);}catch(_){}
+
+        // ── Exemples Produits & Employés, une seule fois par compte (flag user_metadata) ──
+        // Indépendant du seed tx/cli/inv ci-dessous : s'applique aussi aux comptes déjà
+        // actifs qui n'ont jamais touché ces modules plus récents.
+        seedModuleExamples(uid);
 
         // ── Seed démo si compte vide ──
         if(rawTxs.length===0&&rawClis.length===0&&rawInvs.length===0){          await seed(uid);
@@ -3320,9 +3377,9 @@ function Dashboard({ses,logout,updSes}){
             supaSelect("clients",uid),
             supaSelect("invoices",uid),
           ]);
-          setTxs(t2.map(r=>({id:r.id,uid:r.user_id,type:r.type,amount:parseFloat(r.amount)||0,cat:r.category||"Commerce",who:r.who||"",date:r.date||today(),note:r.note||""})));
-          setClis(c2.map(r=>({id:r.id,uid:r.user_id,name:r.name,phone:r.phone||"",email:r.email||"",pays:normalizeLegacyCountry(r.country)||"CI",ville:r.city||"",cat:r.category||"Commerce",status:r.status||"active",ca:parseFloat(r.revenue)||0})));
-          setInvs(i2.map(r=>({id:r.id,uid:r.user_id,num:r.number||"",clientId:r.client_id||"",clientName:r.client_name||"",phone:r.phone||"",total:parseFloat(r.total)||0,sub:parseFloat(r.subtotal)||0,tax:parseFloat(r.tax)||0,currency:r.currency||DEFAULT_CURRENCY,status:r.status||"pending",issued:r.issued||today(),due:r.due||"",items:typeof r.items==="string"?JSON.parse(r.items||"[]"):r.items||[],notes:r.notes||"",payStatus:r.status==="paid"?"paid":"unpaid",payRef:"",payProv:"",amtPaid:parseFloat(r.amt_paid)||0})));
+          setTxs(t2.map(r=>({id:r.id,uid:r.user_id,type:r.type,amount:parseFloat(r.amount)||0,cat:r.category||"Commerce",who:r.who||"",date:r.date||today(),note:r.note||"",is_example:!!r.is_example})));
+          setClis(c2.map(r=>({id:r.id,uid:r.user_id,name:r.name,phone:r.phone||"",email:r.email||"",pays:normalizeLegacyCountry(r.country)||"CI",ville:r.city||"",cat:r.category||"Commerce",status:r.status||"active",ca:parseFloat(r.revenue)||0,is_example:!!r.is_example})));
+          setInvs(i2.map(r=>({id:r.id,uid:r.user_id,num:r.number||"",clientId:r.client_id||"",clientName:r.client_name||"",phone:r.phone||"",total:parseFloat(r.total)||0,sub:parseFloat(r.subtotal)||0,tax:parseFloat(r.tax)||0,currency:r.currency||DEFAULT_CURRENCY,status:r.status||"pending",issued:r.issued||today(),due:r.due||"",items:typeof r.items==="string"?JSON.parse(r.items||"[]"):r.items||[],notes:r.notes||"",payStatus:r.status==="paid"?"paid":"unpaid",payRef:"",payProv:"",amtPaid:parseFloat(r.amt_paid)||0,is_example:!!r.is_example})));
           setLoading(false);
           return;
         }
@@ -4144,6 +4201,17 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
 
   const PgDash=()=>(
     <div>
+      {/* ── Tip exemples, une fois, se ferme et ne revient plus ── */}
+      {showExamplesTip&&(
+        <div style={{background:`${T.gold}0e`,border:`1px solid ${T.gold}33`,borderRadius:14,padding:"11px 14px",marginBottom:12,display:"flex",alignItems:"flex-start",gap:10}}>
+          <span style={{fontSize:17,flexShrink:0}}>💡</span>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:800,fontSize:12,color:T.text}}>Des exemples pour vous guider</div>
+            <div style={{fontSize:11,color:T.sub2,marginTop:2,lineHeight:1.5}}>Dans Transactions, Factures, Clients, Produits et Employés, les lignes marquées <span style={{color:T.gold,fontWeight:700}}>💡 Exemple</span> vous montrent comment ça marche. Modifiez-les ou supprimez-les librement, comme n'importe laquelle de vos données.</div>
+          </div>
+          <button onClick={dismissExamplesTip} style={{background:"none",border:"none",color:T.sub,fontSize:13,cursor:"pointer",padding:2,flexShrink:0}}>✕</button>
+        </div>
+      )}
       {/* ── SOCIAL PROOF BANNER, compteur + note + badges ── */}
       <div style={{background:`linear-gradient(135deg,${T.c1},${T.c2})`,border:`1px solid ${T.border}`,borderRadius:16,padding:"12px 16px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -4381,7 +4449,12 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
         <tbody>
           {rows.map(t=>(
             <tr key={t.id} style={{borderBottom:`1px solid ${T.border}`,animation:flashId===t.id?"flashGreen .7s ease":"none",borderRadius:8}}>
-              <td style={{padding:"7px",fontWeight:600,fontSize:11}}>{t.who||"-"}</td>
+              <td style={{padding:"7px",fontWeight:600,fontSize:11}}>
+                <div style={{display:"flex",alignItems:"center",gap:5}}>
+                  <span>{t.who||"-"}</span>
+                  {t.is_example&&<ExampleBadge sx={{fontSize:7.5,padding:"1px 6px"}}/>}
+                </div>
+              </td>
               <td style={{padding:"7px"}}><span style={{background:"rgba(26,120,255,.1)",color:T.blue,borderRadius:20,padding:"1px 6px",fontSize:9}}>{t.cat}</span></td>
               <td style={{padding:"7px"}}><span style={{background:t.type==="sale"?"rgba(0,212,120,.1)":"rgba(255,34,85,.1)",color:t.type==="sale"?T.gr:T.red,borderRadius:20,padding:"1px 6px",fontSize:9}}>{t.type==="sale"?"↑ Vente":"↓ Dépense"}</span></td>
               <td style={{padding:"7px",fontWeight:700,color:t.type==="sale"?T.gr:T.red,fontSize:11,whiteSpace:"nowrap"}}>{t.type==="sale"?"+":"-"}{fmtf(t.amount)}</td>
@@ -4459,7 +4532,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
               onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.transform="";}}>
               <div style={{position:"absolute",bottom:0,left:0,right:0,height:3,background:stColor}}/>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:7}}>
-                <div><div style={{fontSize:9,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:".07em"}}>{inv.num}</div><div style={{fontWeight:800,fontSize:13,marginTop:1}}>{inv.clientName}</div></div>
+                <div><div style={{fontSize:9,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:".07em"}}>{inv.num}</div><div style={{display:"flex",alignItems:"center",gap:6}}><div style={{fontWeight:800,fontSize:13,marginTop:1}}>{inv.clientName}</div>{inv.is_example&&<ExampleBadge/>}</div></div>
                 <span style={{background:stColor+"1a",color:stColor,borderRadius:20,padding:"2px 8px",fontSize:9,fontWeight:700,flexShrink:0}}>{sL[inv.status]||"⏳ En attente"}</span>
               </div>
 
@@ -4532,7 +4605,13 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
               <div style={{width:42,height:42,borderRadius:"50%",background:`linear-gradient(135deg,${accent},${T.teal})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:13,color:T.ink,flexShrink:0}}>
                 {cl.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
               </div>
-              <div><div style={{fontWeight:700,fontSize:12}}>{cl.name}</div><div style={{fontSize:10,color:T.sub2}}>{countryLabel(cl.pays)}{cl.ville?` · ${cl.ville}`:""} · {cl.cat}</div></div>
+              <div style={{minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <div style={{fontWeight:700,fontSize:12}}>{cl.name}</div>
+                  {cl.is_example&&<ExampleBadge/>}
+                </div>
+                <div style={{fontSize:10,color:T.sub2}}>{countryLabel(cl.pays)}{cl.ville?` · ${cl.ville}`:""} · {cl.cat}</div>
+              </div>
             </div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
               <div><div style={{fontSize:9,color:T.sub}}>CA Total</div><div style={{fontWeight:800,fontSize:14,color:T.gr}}>{fmtk(cl.ca)} F</div></div>
@@ -4867,6 +4946,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                         <div style={{ fontWeight:800, fontSize:14, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{emp.name}</div>
+                        {emp.is_example && <ExampleBadge/>}
                         {plan.roles && emp.role && (
                           <span style={{ fontSize:8.5, fontWeight:800, color:T.gold, background:`${T.gold}18`, border:`1px solid ${T.gold}33`, borderRadius:20, padding:"1px 7px", flexShrink:0 }}>{emp.role}</span>
                         )}
@@ -5438,6 +5518,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
                 <div key={p.id} style={{ background:`linear-gradient(135deg,${T.c1},${T.c2})`, border:`1px solid ${T.border}`, borderRadius:16, padding:"1rem", animation: flashId===p.id?"flashGreen .7s ease":"none", opacity:p.active?1:.55 }}>
                   <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:8, marginBottom:8 }}>
                     <div style={{ fontWeight:800, fontSize:13.5, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</div>
+                    {p.is_example && <ExampleBadge/>}
                     {!p.active && <span style={{ fontSize:8, fontWeight:800, color:T.sub, background:T.c3, borderRadius:20, padding:"1px 7px", flexShrink:0 }}>Masqué</span>}
                   </div>
                   <div style={{ fontWeight:900, fontSize:16, color:accent, marginBottom:8 }}>{fmt(p.price)} <span style={{ fontSize:10, color:T.sub }}>FCFA</span></div>
