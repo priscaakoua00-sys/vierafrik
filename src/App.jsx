@@ -3011,6 +3011,7 @@ function Dashboard({ses,logout,updSes}){
   const [flashId,setFlashId]=useState(null);
   const [staffMode,setStaffMode]=useState(null); // {id,name,role} employé actif en Mode Staff, ou null
   const [staffGateOpen,setStaffGateOpen]=useState(false);
+  const [menuOpen,setMenuOpen]=useState(false);
   const [installEvt,setInstallEvt]=useState(null); // événement beforeinstallprompt capturé (Android/Chrome/Edge)
   const [showInstallBar,setShowInstallBar]=useState(false);
   const [isIosInstall,setIsIosInstall]=useState(false);
@@ -4138,21 +4139,6 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
       </div>
     );
   };
-
-  // ── Tab label helper ──
-  const TabBtn=({id,ic,lb})=>(
-    <button onClick={()=>setPage(id)} style={{
-      padding:"6px 11px",borderRadius:8,border:"none",cursor:"pointer",
-      fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",fontWeight:600,fontSize:11,
-      color:page===id?accent:T.sub,
-      background:page===id?`${accent}15`:"transparent",
-      transition:"all .2s",whiteSpace:"nowrap",flexShrink:0,
-      letterSpacing:"-.01em",
-      boxShadow:page===id?`0 0 12px ${accent}22`:"none",
-    }}>
-      {ic} {lb}
-    </button>
-  );
 
   // ════════════════ PAGES ════════════════
 
@@ -6709,25 +6695,56 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     {id:"prefs", ic:"⚙️",lb:"Compte"},
   ];
   const NAV=[
-    {id:"action",ic:"⚡",lb:t("navAction").replace("⚡ ","")},
-    {id:"dash",  ic:"📊",lb:t("navDash").replace("📊 ","")},
-    {id:"tx",    ic:"💸",lb:t("navTx").replace("💸 ","")},
-    {id:"inv",   ic:"🧾",lb:t("navInv").replace("🧾 ","")},
-    {id:"cli",   ic:"👥",lb:t("navCli").replace("👥 ","")},
-    {id:"emp",   ic:"👷",lb:"Employés"},
-    {id:"produits",ic:"📦",lb:"Produits"},
-    {id:"boutique",ic:"🛍️",lb:"Boutique"},
-    {id:"carte", ic:"📇",lb:t("navCarte").replace("📇 ","")},
-    {id:"logo",  ic:"🎨",lb:t("navLogo").replace("🎨 ","")},
-    {id:"reseau",ic:"🗺️",lb:t("navReseau").replace("🗺️ ","")},
-    {id:"stats", ic:"📈",lb:t("navStats").replace("📈 ","")},
-    {id:"coach", ic:"🎥",lb:t("navCoach").replace("🎥 ","")},
-    {id:"plans", ic:"💎",lb:t("navPlans").replace("💎 ","")},
-    {id:"ambass",ic:"🤝",lb:t("navAmbass").replace("🤝 ","")},
-    {id:"avis",  ic:"⭐",lb:t("navAvis").replace("⭐ ","")},
-    {id:"prefs", ic:"⚙️",lb:t("navPrefs").replace("⚙️ ","")},
-    {id:"qr",    ic:"📱",lb:"Smart QR"},
+    {id:"dash",  ic:"📊",lb:t("navDash").replace("📊 ",""),     grp:"Gérer"},
+    {id:"tx",    ic:"💸",lb:t("navTx").replace("💸 ",""),       grp:"Gérer"},
+    {id:"inv",   ic:"🧾",lb:t("navInv").replace("🧾 ",""),      grp:"Gérer"},
+    {id:"cli",   ic:"👥",lb:t("navCli").replace("👥 ",""),      grp:"Gérer"},
+    {id:"produits",ic:"📦",lb:"Produits",                       grp:"Gérer"},
+    {id:"boutique",ic:"🛍️",lb:"Boutique",                      grp:"Gérer"},
+    {id:"emp",   ic:"👷",lb:"Employés",                         grp:"Gérer"},
+    {id:"stats", ic:"📈",lb:t("navStats").replace("📈 ",""),    grp:"Gérer"},
+    {id:"action",ic:"⚡",lb:t("navAction").replace("⚡ ",""),    grp:"Développer"},
+    {id:"reseau",ic:"🗺️",lb:t("navReseau").replace("🗺️ ",""), grp:"Développer"},
+    {id:"carte", ic:"📇",lb:t("navCarte").replace("📇 ",""),    grp:"Développer"},
+    {id:"logo",  ic:"🎨",lb:t("navLogo").replace("🎨 ",""),     grp:"Développer"},
+    {id:"qr",    ic:"📱",lb:"Smart QR",                         grp:"Développer"},
+    {id:"coach", ic:"🎥",lb:t("navCoach").replace("🎥 ",""),    grp:"Développer"},
+    {id:"ambass",ic:"🤝",lb:t("navAmbass").replace("🤝 ",""),   grp:"Développer"},
+    {id:"avis",  ic:"⭐",lb:t("navAvis").replace("⭐ ",""),      grp:"Compte"},
+    {id:"plans", ic:"💎",lb:t("navPlans").replace("💎 ",""),    grp:"Compte"},
+    {id:"prefs", ic:"⚙️",lb:t("navPrefs").replace("⚙️ ",""),    grp:"Compte"},
   ];
+  const NAV_GROUPS=["Gérer","Développer","Compte"];
+
+  // ── Menu de navigation, remplace l'ancienne barre horizontale qui
+  //  débordait et cachait des onglets une fois trop d'items ajoutés.
+  //  Un seul bouton, tout est dedans, identique sur ordinateur et mobile. ──
+  const NavMenu = () => (
+    <div onClick={()=>setMenuOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",zIndex:960,display:"flex",justifyContent:"center",alignItems:"flex-start",backdropFilter:"blur(10px)",padding:"64px 12px 12px"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:`linear-gradient(160deg,${T.c1},${T.c2})`,border:`1px solid ${T.border}`,borderRadius:20,width:"100%",maxWidth:640,maxHeight:"calc(100vh - 90px)",overflowY:"auto",boxShadow:"0 30px 90px rgba(0,0,0,.85)",animation:"pop .22s cubic-bezier(.34,1.56,.64,1)"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 18px 12px",position:"sticky",top:0,background:T.c1,borderBottom:`1px solid ${T.border}`,zIndex:1}}>
+          <div style={{fontWeight:900,fontSize:15,letterSpacing:"-.02em"}}>Menu</div>
+          <button onClick={()=>setMenuOpen(false)} style={{background:T.c3,border:`1px solid ${T.border}`,color:T.sub2,width:28,height:28,borderRadius:"50%",cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+        </div>
+        <div style={{padding:"14px 18px 22px"}}>
+          {NAV_GROUPS.map(grp=>(
+            <div key={grp} style={{marginBottom:18}}>
+              <div style={{fontSize:10,fontWeight:800,color:T.sub,textTransform:"uppercase",letterSpacing:".08em",marginBottom:9}}>{grp}</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
+                {NAV.filter(n=>n.grp===grp).map(n=>(
+                  <button key={n.id} onClick={()=>{setPage(n.id);setMenuOpen(false);}}
+                    style={{display:"flex",alignItems:"center",gap:9,padding:"11px 12px",borderRadius:12,border:`1px solid ${page===n.id?accent:T.border}`,background:page===n.id?`${accent}14`:T.c2,color:page===n.id?accent:T.text,fontFamily:"inherit",fontWeight:700,fontSize:12.5,cursor:"pointer",textAlign:"left",transition:"all .15s"}}>
+                    <span style={{fontSize:16,flexShrink:0}}>{n.ic}</span>
+                    <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.lb}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 
 
 
@@ -8049,14 +8066,12 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
         button:active{transform:scale(.96)!important}
         .card{background:${T.c1};border:1px solid ${T.border};border-radius:16px;padding:1.2rem;transition:border-color .2s,box-shadow .2s}
         .card:hover{border-color:${accent}22;box-shadow:0 8px 28px rgba(0,0,0,.35)}
-        .desktop-nav{display:flex}
         .mobile-nav{display:none}
         .pg-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
         .pg-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
         .pg-grid-kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
         .fade-in{animation:slideUp .3s ease both}
         @media(max-width:640px){
-          .desktop-nav{display:none!important}
           .mobile-nav{display:flex!important}
           .pg-grid-2{grid-template-columns:1fr!important}
           .pg-grid-3{grid-template-columns:1fr 1fr!important}
@@ -8088,9 +8103,20 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
             <button onClick={()=>setStaffMode(null)} style={{background:T.purple,border:"none",borderRadius:16,color:"#fff",padding:"4px 12px",fontWeight:800,fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>Quitter</button>
           </div>
         ) : (
-          <div className="desktop-nav" style={{gap:1,overflowX:"auto",padding:"0 6px",scrollbarWidth:"none"}}>
-            {NAV.map(n=><TabBtn key={n.id} {...n}/>)}
-          </div>
+          <button onClick={()=>setMenuOpen(true)} style={{
+            display:"flex",alignItems:"center",gap:9,background:T.c2,border:`1px solid ${T.border}`,
+            borderRadius:20,padding:"6px 14px 6px 10px",cursor:"pointer",fontFamily:"inherit",
+            color:T.text,minWidth:0,flex:"0 1 auto",
+          }}>
+            <span style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
+              <span style={{width:15,height:2,borderRadius:1,background:accent}}/>
+              <span style={{width:15,height:2,borderRadius:1,background:accent}}/>
+              <span style={{width:15,height:2,borderRadius:1,background:accent}}/>
+            </span>
+            <span style={{fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              {NAV.find(n=>n.id===page)?.lb || "Menu"}
+            </span>
+          </button>
         )}
         <div style={{display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
           {/* Raccourci plan Free, les limites réelles s'affichent sur chaque page (clients/factures/transactions) */}
@@ -8240,6 +8266,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
 
       {/* ════ MODALS ════ */}
 
+      {menuOpen&&<NavMenu/>}
       <StaffGateModal/>
 
       {/* Transaction */}
