@@ -5653,6 +5653,109 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
     const lastPay = (empId) => pays.filter(p => p.employee_id === empId)[0];
     const totalPaid = (empId) => pays.filter(p => p.employee_id === empId).reduce((s,p)=>s+p.amount,0);
 
+    // ── Reçu de salaire réutilisable : PDF réel téléchargeable + WhatsApp + Mail ──
+    // (utilisé juste après un paiement ET pour rouvrir un reçu depuis l'historique)
+    const buildReceiptHtml = (name, amount, currency, date, receiptId) => {
+      const fmtReceiptAmt = (amt, cur) => `${new Intl.NumberFormat("fr-FR").format(Math.round(amt||0))} ${cur||"FCFA"}`;
+      const businessName = ses.business || "Mon Entreprise";
+      const businessPhone = ses.phone || "";
+      const receiptNum = `REC-${receiptId}`;
+      return `
+<style>
+  #print-area * { box-sizing:border-box; }
+  #print-area { font-family: 'Helvetica Neue', Arial, sans-serif; background:#fff; color:#111; padding:40px; max-width:600px; margin:0 auto; }
+  #print-area .header { text-align:center; border-bottom:2px solid #00d478; padding-bottom:20px; margin-bottom:24px; }
+  #print-area .logo { font-size:26px; font-weight:900; color:#00d478; letter-spacing:-.03em; }
+  #print-area .logo span { color:#111; }
+  #print-area .subtitle { font-size:11px; color:#666; margin-top:4px; text-transform:uppercase; letter-spacing:.08em; }
+  #print-area .receipt-id { display:inline-block; background:#f5f5f5; border:1px solid #ddd; border-radius:20px; padding:4px 14px; font-size:11px; font-weight:700; color:#555; margin-top:8px; }
+  #print-area .section-title { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.1em; color:#999; margin-bottom:10px; margin-top:20px; }
+  #print-area .card { border:1px solid #e8e8e8; border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+  #print-area .row { display:flex; justify-content:space-between; align-items:center; padding:9px 0; border-bottom:1px solid #f0f0f0; }
+  #print-area .row:last-child { border-bottom:none; }
+  #print-area .row-label { font-size:12px; color:#777; }
+  #print-area .row-val { font-size:13px; font-weight:700; color:#111; }
+  #print-area .amount-big { font-size:28px; font-weight:900; color:#00d478; text-align:center; padding:16px; background:#f0fff8; border-radius:12px; border:2px solid #00d478; margin:16px 0; letter-spacing:-.02em; }
+  #print-area .badge-paid { display:inline-block; background:#e6fff4; border:1px solid #00d478; color:#00a85a; border-radius:20px; padding:4px 14px; font-size:12px; font-weight:800; }
+  #print-area .footer { text-align:center; margin-top:28px; padding-top:16px; border-top:1px solid #eee; font-size:10px; color:#aaa; line-height:1.8; }
+  #print-area .signature-box { border:1px dashed #ccc; border-radius:8px; padding:24px; margin-top:16px; text-align:center; }
+  #print-area .signature-label { font-size:10px; color:#aaa; margin-top:8px; }
+  @media print {
+    #print-area { padding:24px; }
+    #print-area .no-print { display:none !important; }
+  }
+</style>
+  <div class="header">
+    <div class="logo">Vier<span>Afrik</span></div>
+    <div class="subtitle">Reçu de paiement de salaire</div>
+    <div class="receipt-id">N° ${receiptNum}</div>
+  </div>
+
+  <div class="section-title">Informations employeur</div>
+  <div class="card">
+    <div class="row"><span class="row-label">Entreprise</span><span class="row-val">${businessName}</span></div>
+    ${businessPhone ? `<div class="row"><span class="row-label">Téléphone</span><span class="row-val">${businessPhone}</span></div>` : ""}
+    <div class="row"><span class="row-label">Date d'émission</span><span class="row-val">${date}</span></div>
+  </div>
+
+  <div class="section-title">Employé</div>
+  <div class="card">
+    <div class="row"><span class="row-label">Nom complet</span><span class="row-val">${name}</span></div>
+    <div class="row"><span class="row-label">Période</span><span class="row-val">${date}</span></div>
+    <div class="row"><span class="row-label">Statut</span><span class="row-val"><span class="badge-paid">✅ Payé</span></span></div>
+  </div>
+
+  <div class="section-title">Montant versé</div>
+  <div class="amount-big">${fmtReceiptAmt(amount, currency)}</div>
+
+  <div class="card" style="margin-top:0">
+    <div class="row"><span class="row-label">Salaire de base</span><span class="row-val">${fmtReceiptAmt(amount, currency)}</span></div>
+    <div class="row"><span class="row-label">Déductions</span><span class="row-val">0 ${currency||"FCFA"}</span></div>
+    <div class="row" style="border-top:2px solid #00d478; padding-top:12px; margin-top:4px;"><span class="row-label" style="font-weight:800; font-size:13px;">NET À PAYER</span><span class="row-val" style="font-size:16px; color:#00d478;">${fmtReceiptAmt(amount, currency)}</span></div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:24px;">
+    <div class="signature-box">
+      <div style="height:40px;"></div>
+      <div class="signature-label">Signature employeur</div>
+      <div style="font-size:11px; color:#999; margin-top:4px;">${businessName}</div>
+    </div>
+    <div class="signature-box">
+      <div style="height:40px;"></div>
+      <div class="signature-label">Signature employé</div>
+      <div style="font-size:11px; color:#999; margin-top:4px;">${name}</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Document généré par VierAfrik · vierafrik.com<br/>
+    ${receiptNum} · ${date}<br/>
+    Ce document constitue une preuve de paiement de salaire.
+  </div>`;
+    };
+
+    const genEmpPDF = (name, amount, currency, date, receiptId) => {
+      doPrint(buildReceiptHtml(name, amount, currency, date, receiptId), `REC-${receiptId}.pdf`);
+      toast("🧾 Génération du PDF…");
+    };
+
+    const sendEmpWA = (name, amount, currency, date, receiptId, phone) => {
+      const businessName = ses.business || "Mon Entreprise";
+      const receiptNum = `REC-${receiptId}`;
+      const msg = `🧾 *Reçu de salaire, ${businessName}*\n\n👤 Employé : ${name}\n💰 Montant : ${fmtAmt(amount,currency)}\n📅 Date : ${date}\n✅ Statut : Payé\n\nN° ${receiptNum}\n\n_Généré par VierAfrik · vierafrik.com_`;
+      const ph = (phone||"").replace(/\D/g,"");
+      const url = ph ? `https://wa.me/${ph}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+      window.open(url, "_blank");
+    };
+
+    const mailEmpReceipt = (name, amount, currency, date, receiptId) => {
+      const businessName = ses.business || "Mon Entreprise";
+      const receiptNum = `REC-${receiptId}`;
+      const subject = `Reçu de salaire ${receiptNum} — ${name}`;
+      const body = `Reçu de salaire\n\nEntreprise : ${businessName}\nEmployé : ${name}\nMontant : ${fmtAmt(amount,currency)}\nDate : ${date}\nStatut : Payé\nN° ${receiptNum}\n\nGénéré par VierAfrik · vierafrik.com`;
+      window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, "_blank");
+    };
+
     // ── Style inputs local ──
     const IS2 = { ...IS, marginTop: 4 };
 
@@ -5918,97 +6021,8 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
           {lastReceipt && (() => {
             const fmtReceiptAmt = (amt, cur) => `${new Intl.NumberFormat("fr-FR").format(Math.round(amt||0))} ${cur||"FCFA"}`;
             const businessName = ses.business || "Mon Entreprise";
-            const businessPhone = ses.phone || "";
             const receiptNum = `REC-${lastReceipt.receiptId}`;
-
-            // ── Téléchargement du reçu en vrai PDF (voir doPrint) ──
-            const handlePrint = () => {
-              const html = `
-<style>
-  #print-area * { box-sizing:border-box; }
-  #print-area { font-family: 'Helvetica Neue', Arial, sans-serif; background:#fff; color:#111; padding:40px; max-width:600px; margin:0 auto; }
-  #print-area .header { text-align:center; border-bottom:2px solid #00d478; padding-bottom:20px; margin-bottom:24px; }
-  #print-area .logo { font-size:26px; font-weight:900; color:#00d478; letter-spacing:-.03em; }
-  #print-area .logo span { color:#111; }
-  #print-area .subtitle { font-size:11px; color:#666; margin-top:4px; text-transform:uppercase; letter-spacing:.08em; }
-  #print-area .receipt-id { display:inline-block; background:#f5f5f5; border:1px solid #ddd; border-radius:20px; padding:4px 14px; font-size:11px; font-weight:700; color:#555; margin-top:8px; }
-  #print-area .section-title { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.1em; color:#999; margin-bottom:10px; margin-top:20px; }
-  #print-area .card { border:1px solid #e8e8e8; border-radius:12px; padding:18px 20px; margin-bottom:16px; }
-  #print-area .row { display:flex; justify-content:space-between; align-items:center; padding:9px 0; border-bottom:1px solid #f0f0f0; }
-  #print-area .row:last-child { border-bottom:none; }
-  #print-area .row-label { font-size:12px; color:#777; }
-  #print-area .row-val { font-size:13px; font-weight:700; color:#111; }
-  #print-area .amount-big { font-size:28px; font-weight:900; color:#00d478; text-align:center; padding:16px; background:#f0fff8; border-radius:12px; border:2px solid #00d478; margin:16px 0; letter-spacing:-.02em; }
-  #print-area .badge-paid { display:inline-block; background:#e6fff4; border:1px solid #00d478; color:#00a85a; border-radius:20px; padding:4px 14px; font-size:12px; font-weight:800; }
-  #print-area .footer { text-align:center; margin-top:28px; padding-top:16px; border-top:1px solid #eee; font-size:10px; color:#aaa; line-height:1.8; }
-  #print-area .signature-box { border:1px dashed #ccc; border-radius:8px; padding:24px; margin-top:16px; text-align:center; }
-  #print-area .signature-label { font-size:10px; color:#aaa; margin-top:8px; }
-  @media print {
-    #print-area { padding:24px; }
-    #print-area .no-print { display:none !important; }
-  }
-</style>
-  <div class="header">
-    <div class="logo">Vier<span>Afrik</span></div>
-    <div class="subtitle">Reçu de paiement de salaire</div>
-    <div class="receipt-id">N° ${receiptNum}</div>
-  </div>
-
-  <div class="section-title">Informations employeur</div>
-  <div class="card">
-    <div class="row"><span class="row-label">Entreprise</span><span class="row-val">${businessName}</span></div>
-    ${businessPhone ? `<div class="row"><span class="row-label">Téléphone</span><span class="row-val">${businessPhone}</span></div>` : ""}
-    <div class="row"><span class="row-label">Date d'émission</span><span class="row-val">${lastReceipt.date}</span></div>
-  </div>
-
-  <div class="section-title">Employé</div>
-  <div class="card">
-    <div class="row"><span class="row-label">Nom complet</span><span class="row-val">${lastReceipt.name}</span></div>
-    <div class="row"><span class="row-label">Période</span><span class="row-val">${lastReceipt.date}</span></div>
-    <div class="row"><span class="row-label">Statut</span><span class="row-val"><span class="badge-paid">✅ Payé</span></span></div>
-  </div>
-
-  <div class="section-title">Montant versé</div>
-  <div class="amount-big">${fmtReceiptAmt(lastReceipt.amount, lastReceipt.currency)}</div>
-
-  <div class="card" style="margin-top:0">
-    <div class="row"><span class="row-label">Salaire de base</span><span class="row-val">${fmtReceiptAmt(lastReceipt.amount, lastReceipt.currency)}</span></div>
-    <div class="row"><span class="row-label">Déductions</span><span class="row-val">0 ${lastReceipt.currency||"FCFA"}</span></div>
-    <div class="row" style="border-top:2px solid #00d478; padding-top:12px; margin-top:4px;"><span class="row-label" style="font-weight:800; font-size:13px;">NET À PAYER</span><span class="row-val" style="font-size:16px; color:#00d478;">${fmtReceiptAmt(lastReceipt.amount, lastReceipt.currency)}</span></div>
-  </div>
-
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:24px;">
-    <div class="signature-box">
-      <div style="height:40px;"></div>
-      <div class="signature-label">Signature employeur</div>
-      <div style="font-size:11px; color:#999; margin-top:4px;">${businessName}</div>
-    </div>
-    <div class="signature-box">
-      <div style="height:40px;"></div>
-      <div class="signature-label">Signature employé</div>
-      <div style="font-size:11px; color:#999; margin-top:4px;">${lastReceipt.name}</div>
-    </div>
-  </div>
-
-  <div class="footer">
-    Document généré par VierAfrik · vierafrik.com<br/>
-    ${receiptNum} · ${lastReceipt.date}<br/>
-    Ce document constitue une preuve de paiement de salaire.
-  </div>`;
-              doPrint(html, `${receiptNum}.pdf`);
-              toast("🧾 Génération du PDF…");
-            };
-
-            // ── Partage WhatsApp ──
-            const handleWhatsApp = () => {
-              const empPhone = emps.find(e=>e.name===lastReceipt.name)?.phone || "";
-              const msg = `🧾 *Reçu de salaire, ${businessName}*\n\n👤 Employé : ${lastReceipt.name}\n💰 Montant : ${fmtReceiptAmt(lastReceipt.amount, lastReceipt.currency)}\n📅 Date : ${lastReceipt.date}\n✅ Statut : Payé\n\nN° ${receiptNum}\n\n_Généré par VierAfrik · vierafrik.com_`;
-              const ph = empPhone.replace(/\D/g,"");
-              const url = ph
-                ? `https://wa.me/${ph}?text=${encodeURIComponent(msg)}`
-                : `https://wa.me/?text=${encodeURIComponent(msg)}`;
-              window.open(url, "_blank");
-            };
+            const empPhone = emps.find(e=>e.name===lastReceipt.name)?.phone || "";
 
             return (
               <div style={{ textAlign:"center" }}>
@@ -6035,15 +6049,19 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
                   ))}
                 </div>
 
-                {/* Boutons actions */}
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
-                  <button onClick={handlePrint}
-                    style={{ padding:"12px 8px", background:`${T.blue}15`, border:`1px solid ${T.blue}44`, borderRadius:11, color:T.blue, cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-                    📄 Télécharger PDF
+                {/* Boutons actions : PDF réel téléchargeable + WhatsApp + Mail */}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:7, marginBottom:8 }}>
+                  <button onClick={()=>genEmpPDF(lastReceipt.name, lastReceipt.amount, lastReceipt.currency, lastReceipt.date, lastReceipt.receiptId)}
+                    style={{ padding:"12px 6px", background:`${T.blue}15`, border:`1px solid ${T.blue}44`, borderRadius:11, color:T.blue, cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:800, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:5 }}>
+                    <span style={{fontSize:16}}>📄</span> PDF
                   </button>
-                  <button onClick={handleWhatsApp}
-                    style={{ padding:"12px 8px", background:"rgba(37,211,102,.12)", border:"1px solid rgba(37,211,102,.35)", borderRadius:11, color:"#25D366", cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+                  <button onClick={()=>sendEmpWA(lastReceipt.name, lastReceipt.amount, lastReceipt.currency, lastReceipt.date, lastReceipt.receiptId, empPhone)}
+                    style={{ padding:"12px 6px", background:"rgba(37,211,102,.12)", border:"1px solid rgba(37,211,102,.35)", borderRadius:11, color:"#25D366", cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:800, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:5 }}>
                     <WhatsAppIcon size={16}/> WhatsApp
+                  </button>
+                  <button onClick={()=>mailEmpReceipt(lastReceipt.name, lastReceipt.amount, lastReceipt.currency, lastReceipt.date, lastReceipt.receiptId)}
+                    style={{ padding:"12px 6px", background:`${T.gold}15`, border:`1px solid ${T.gold}44`, borderRadius:11, color:T.gold, cursor:"pointer", fontFamily:"inherit", fontSize:11, fontWeight:800, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:5 }}>
+                    <span style={{fontSize:16}}>✉️</span> Mail
                   </button>
                 </div>
                 <button onClick={()=>{setMdlEmp(null);setLastReceipt(null);}}
@@ -6081,17 +6099,31 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
                 </div>
               </div>
               {/* Liste */}
-              <div style={{ display:"flex", flexDirection:"column", gap:1, maxHeight:360, overflowY:"auto" }}>
-                {histPays.map((p, i) => (
-                  <div key={p.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 2px", borderBottom: i<histPays.length-1?`1px solid ${T.border}`:"none" }}>
-                    <div style={{ width:32, height:32, borderRadius:9, background:`${T.gr}15`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, flexShrink:0 }}>✅</div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontWeight:700, fontSize:12 }}>{p.date}</div>
-                      <div style={{ fontSize:9, color:T.sub, textTransform:"uppercase", letterSpacing:".04em" }}>Payé</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:6, maxHeight:420, overflowY:"auto" }}>
+                {histPays.map((p, i) => {
+                  const rid = (p.id||"").toString().replace(/-/g,"").slice(0,8).toUpperCase() || Date.parse(p.created_at||p.date)||i;
+                  return (
+                  <div key={p.id} style={{ padding:"10px 2px", borderBottom: i<histPays.length-1?`1px solid ${T.border}`:"none" }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:7 }}>
+                      <div style={{ width:32, height:32, borderRadius:9, background:`${T.gr}15`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, flexShrink:0 }}>✅</div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontWeight:700, fontSize:12 }}>{p.date}</div>
+                        <div style={{ fontSize:9, color:T.sub, textTransform:"uppercase", letterSpacing:".04em" }}>Payé</div>
+                      </div>
+                      <div style={{ fontWeight:800, fontSize:14, color:T.gr }}>{fmtAmt(p.amount, p.currency)}</div>
                     </div>
-                    <div style={{ fontWeight:800, fontSize:14, color:T.gr }}>{fmtAmt(p.amount, p.currency)}</div>
+                    {/* Reçu : PDF réel téléchargeable + WhatsApp + Mail, pour rouvrir n'importe quel paiement passé */}
+                    <div style={{ display:"flex", gap:5, paddingLeft:44 }}>
+                      <button onClick={()=>genEmpPDF(histTarget?.name||"", p.amount, p.currency, p.date, rid)}
+                        style={{ flex:1, background:`${T.blue}10`, border:"none", color:T.blue, borderRadius:7, padding:"6px", cursor:"pointer", fontSize:10, fontWeight:700 }}>📄 PDF</button>
+                      <button onClick={()=>sendEmpWA(histTarget?.name||"", p.amount, p.currency, p.date, rid, histTarget?.phone)}
+                        style={{ flex:1, background:"rgba(37,211,102,.1)", border:"1px solid rgba(37,211,102,.25)", color:"#25D366", borderRadius:7, padding:"6px", cursor:"pointer", fontSize:10, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}><WhatsAppIcon size={12}/> WhatsApp</button>
+                      <button onClick={()=>mailEmpReceipt(histTarget?.name||"", p.amount, p.currency, p.date, rid)}
+                        style={{ flex:1, background:`${T.gold}10`, border:"none", color:T.gold, borderRadius:7, padding:"6px", cursor:"pointer", fontSize:10, fontWeight:700 }}>✉️ Mail</button>
+                    </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}
