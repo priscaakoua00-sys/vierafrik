@@ -2519,7 +2519,12 @@ function PublicStorePage({ slug }) {
         @keyframes slideUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
         .vaf-store-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
       `}</style>
-      <div style={{background:`linear-gradient(135deg,${store.banner_color||T.gr},${T.teal})`,padding:"38px 20px 30px"}}>
+      <div style={{
+        background: store.logo_url
+          ? `linear-gradient(135deg,rgba(0,0,0,.55),rgba(0,0,0,.35)),url(${store.logo_url}) center/cover`
+          : `linear-gradient(135deg,${store.banner_color||T.gr},${T.teal})`,
+        padding:"38px 20px 30px",
+      }}>
         <div style={{maxWidth:900,margin:"0 auto"}}>
           <div style={{display:"inline-flex",alignItems:"center",gap:8,background:"rgba(0,0,0,.22)",borderRadius:20,padding:"4px 12px",marginBottom:14,fontSize:11,fontWeight:700,color:"#fff"}}>
             🌍 Propulsé par VierAfrik
@@ -6153,7 +6158,7 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
               const badge = stockBadge(p);
               return (
                 <div key={p.id} style={{ background:`linear-gradient(135deg,${T.c1},${T.c2})`, border:`1px solid ${T.border}`, borderRadius:16, overflow:"hidden", animation: flashId===p.id?"flashGreen .7s ease":"none", opacity:p.active?1:.55 }}>
-                  <div style={{ height:96, background:p.image_url?`url(${p.image_url}) center/cover`:`linear-gradient(135deg,${T.c2},${T.c3})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:26 }}>
+                  <div style={{ height:140, background:p.image_url?`url(${p.image_url}) center/cover`:`linear-gradient(135deg,${T.c2},${T.c3})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:26 }}>
                     {!p.image_url && "🛍️"}
                   </div>
                   <div style={{ padding:"1rem" }}>
@@ -6223,8 +6228,8 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
           <FL l="Photo du produit (optionnel)" ch={
             <div>
               {fmPr.image_url && (
-                <div style={{ position:"relative", width:96, height:96, marginBottom:9 }}>
-                  <img src={fmPr.image_url} alt="" style={{ width:96, height:96, objectFit:"cover", borderRadius:12, border:`1px solid ${T.border}`, display:"block" }}/>
+                <div style={{ position:"relative", width:"100%", maxWidth:220, height:140, marginBottom:9 }}>
+                  <img src={fmPr.image_url} alt="" style={{ width:"100%", height:140, objectFit:"cover", objectPosition:"center", borderRadius:12, border:`1px solid ${T.border}`, display:"block" }}/>
                   <button type="button" onClick={()=>setFmPr(f=>({...f,image_url:""}))}
                     style={{ position:"absolute", top:-7, right:-7, width:22, height:22, borderRadius:"50%", background:T.red, border:`2px solid ${T.c1}`, color:"#fff", fontSize:11, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
                 </div>
@@ -6311,6 +6316,8 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
     const [savingSt, setSavingSt]  = useState(false);
     const [copied, setCopied]      = useState(false);
     const [prodCount, setProdCount] = useState(0);
+    const [uploadingLogo, setUploadingLogo] = useState(false);
+    const logoInputRef = useRef(null);
 
     useEffect(() => {
       (async () => {
@@ -6350,7 +6357,7 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
       const payload = {
         user_id: uid, slug: cleanSlug, store_name: fmSt.store_name.trim(),
         whatsapp_number: cleanP(fmSt.whatsapp_number || ""), bio: fmSt.bio || "",
-        banner_color: fmSt.banner_color || accent,
+        banner_color: fmSt.banner_color || accent, logo_url: fmSt.logo_url || "",
         published: publish !== undefined ? publish : !!fmSt.published,
         updated_at: new Date().toISOString(),
       };
@@ -6410,6 +6417,38 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
         )}
 
         <div style={{ background:T.c1, border:`1px solid ${T.border}`, borderRadius:18, padding:"1.2rem" }}>
+          <FL l="Logo / photo de couverture (optionnel)" ch={
+            <div>
+              <div style={{ height:110, borderRadius:14, marginBottom:10, background:fmSt.logo_url?`url(${fmSt.logo_url}) center/cover`:`linear-gradient(135deg,${fmSt.banner_color||accent},${T.teal})`, display:"flex", alignItems:"center", justifyContent:"center", position:"relative", overflow:"hidden" }}>
+                {!fmSt.logo_url && <span style={{ fontSize:30 }}>🛍️</span>}
+                {fmSt.logo_url && (
+                  <button type="button" onClick={()=>setFmSt(f=>({...f,logo_url:""}))}
+                    style={{ position:"absolute", top:8, right:8, width:26, height:26, borderRadius:"50%", background:"rgba(0,0,0,.6)", border:"none", color:"#fff", fontSize:12, cursor:"pointer" }}>✕</button>
+                )}
+              </div>
+              <input ref={logoInputRef} type="file" accept="image/*" style={{ display:"none" }}
+                onChange={async ev=>{
+                  const file = ev.target.files?.[0];
+                  ev.target.value = "";
+                  if (!file) return;
+                  setUploadingLogo(true);
+                  try {
+                    const blob = await compressImageFile(file, 1000, 0.75);
+                    const s = await getSupa();
+                    const url = await uploadNetworkMedia(s, uid, blob, { folder:"stores", ext:"jpg", contentType:"image/jpeg" });
+                    setFmSt(f=>({ ...f, logo_url:url }));
+                  } catch(e) {
+                    toast("❌ Envoi de la photo échoué, réessayez", "err");
+                    console.error("store logo upload:", e);
+                  }
+                  setUploadingLogo(false);
+                }}/>
+              <button type="button" disabled={uploadingLogo} onClick={()=>logoInputRef.current?.click()}
+                style={{ display:"inline-flex", alignItems:"center", gap:7, background:T.c2, border:`1px solid ${T.border}`, borderRadius:10, padding:"9px 14px", color:T.text, fontFamily:"inherit", fontWeight:700, fontSize:12, cursor:uploadingLogo?"default":"pointer", opacity:uploadingLogo?.6:1 }}>
+                {uploadingLogo ? "⏳ Envoi…" : fmSt.logo_url ? "🔄 Changer la photo" : "📷 Ajouter une photo"}
+              </button>
+            </div>
+          }/>
           <FL l="Nom de la boutique *" ch={
             <input style={IS} placeholder="Ex : Chez Fatou" value={fmSt.store_name||""} onChange={ev=>setFmSt(f=>({...f,store_name:ev.target.value}))}/>
           }/>
