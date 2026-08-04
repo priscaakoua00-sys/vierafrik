@@ -217,7 +217,7 @@ export default function PriceComparator({ user, accent = T.gr, toast, getSupa })
 
       {/* Formulaire d'ajout */}
       {showForm && (
-        <div onClick={()=>setShowForm(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:950, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+        <div onClick={()=>setShowForm(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:950, display:"flex", alignItems:"flex-end", justifyContent:"center", overflowY:"auto" }}>
           <div onClick={e=>e.stopPropagation()} style={{
             background:T.c1, border:`1px solid ${T.border}`, borderTopLeftRadius:24, borderTopRightRadius:24,
             padding:"1.4rem 1.3rem 0", width:"100%", maxWidth:480, maxHeight:"85vh", overflowY:"auto",

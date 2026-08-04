@@ -469,8 +469,8 @@ const cleanP=p=>(p||"").replace(/\D/g,"");
 function ConfirmModal({open,onClose,onConfirm,title,msg,confirmLabel="Confirmer",danger=false}){
   if(!open)return null;
   return(
-    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.9)",zIndex:950,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(12px)"}}>
-      <div style={{background:T.c1,border:`1px solid ${danger?"rgba(255,34,85,.3)":T.border}`,borderRadius:18,padding:"1.6rem",width:"90%",maxWidth:380,color:T.text,boxShadow:"0 40px 100px rgba(0,0,0,.9)",animation:"pop .2s cubic-bezier(.34,1.56,.64,1)"}}>
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.9)",zIndex:950,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(12px)",padding:"12px",overflowY:"auto"}}>
+      <div style={{background:T.c1,border:`1px solid ${danger?"rgba(255,34,85,.3)":T.border}`,borderRadius:18,padding:"1.6rem",width:"90%",maxWidth:380,margin:"auto",color:T.text,boxShadow:"0 40px 100px rgba(0,0,0,.9)",animation:"pop .2s cubic-bezier(.34,1.56,.64,1)"}}>
         <div style={{fontWeight:900,fontSize:17,marginBottom:10}}>{title}</div>
         <div style={{fontSize:13,color:T.sub2,marginBottom:20,lineHeight:1.6}}>{msg}</div>
         <div style={{display:"flex",gap:9}}>
@@ -566,7 +566,7 @@ async function seedModuleExamples(uid){
       description: "Ceci est un produit d'exemple pour vous montrer comment ça marche. Modifiez-le ou supprimez-le librement.",
       price: 15000, currency: "XOF",
       stock_qty: 12, low_stock_threshold: 3,
-      image_url: "", category: "Alimentation", active: true,
+      image_url: "https://cms-toolkit-artifacts.artlist.io/content/-t-e-x-t_-t-o_-i-m-a-g-e-v1/media__10/-t-e-x-t_-t-o_-i-m-a-g-e-16d810e0-7af0-41d0-9a87-f5572c80a58e.png?Expires=2101232760&Key-Pair-Id=K2ZDLYDZI2R1DF&Signature=oI7Oz3x69IUcYos0ZFxc50nx8FD8U~MfSHCpdXGdb02LD14isM~e9zcdlE~j~LkYRzlhuhfzPs9TOGQ~Lz~q-0fFa94Oa1W-54Hw9UCldRk3VhYbrHG7ny1r37Fhv6Daqkarsn7n-S3JvTOHr5PkVdLJdnbLasMNPwZ6Qu9lEYalp02in6K-lrWYLs5Ostu8~3YhhQISK2AXPXqf2VKnWKDfCW8dnEqLd23oqlIWZKjIZlXrR3oszCTWNtsKiikEQexjZnWjPKIvbupwo9WLXDIpbwOw5TbSBrnU53GYTNpnlieCN4nFEblNz3oLW8l8bA-8bnAVifqlOdHYITAJpg__", category: "Alimentation", active: true,
       is_example: true, created_at: new Date().toISOString(),
     });
   } catch(e) { console.warn("[seedModuleExamples] products:", e); }
@@ -690,8 +690,8 @@ function Modal({open,onClose,title,ch,wide,children}){
   // ch (prop legacy) a priorité sur children, ne pas passer les deux simultanément
   if(!open)return null;
   return(
-    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",zIndex:900,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(16px)",padding:"12px"}}>
-      <div style={{background:`linear-gradient(160deg,${T.c1},${T.c2})`,border:`1px solid rgba(0,210,120,.2)`,borderRadius:24,padding:"1.8rem",width:"100%",maxWidth:wide?740:500,position:"relative",maxHeight:"92vh",overflowY:"auto",color:T.text,boxShadow:"0 40px 120px rgba(0,0,0,.95)",animation:"pop .28s cubic-bezier(.34,1.56,.64,1)"}}>
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",zIndex:900,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(16px)",padding:"12px",overflowY:"auto"}}>
+      <div style={{background:`linear-gradient(160deg,${T.c1},${T.c2})`,border:`1px solid rgba(0,210,120,.2)`,borderRadius:24,padding:"1.8rem",width:"100%",maxWidth:wide?740:500,position:"relative",margin:"auto",color:T.text,boxShadow:"0 40px 120px rgba(0,0,0,.95)",animation:"pop .28s cubic-bezier(.34,1.56,.64,1)"}}>
         <button onClick={onClose} style={{position:"absolute",top:16,right:16,background:T.c3,border:`1px solid ${T.border}`,color:T.sub2,width:30,height:30,borderRadius:"50%",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .18s"}}>✕</button>
         {title&&<div style={{fontWeight:800,fontSize:19,marginBottom:20,letterSpacing:"-.03em"}}>{title}</div>}
         {ch !== undefined ? ch : children}
@@ -6340,7 +6340,7 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
     const saveStore = async (publish) => {
       if (!fmSt.store_name?.trim()) { toast("⚠️ Le nom de la boutique est obligatoire", "err"); return; }
       if (!fmSt.slug?.trim()) { toast("⚠️ Le lien de la boutique est obligatoire", "err"); return; }
-      if (publish && !plan.store) {
+      if (publish && !plan.store && !isAdmin) {
         toast("🔒 La publication de la boutique nécessite le plan Pro ou Business", "warn");
         setPage("plans");
         return;
@@ -6387,7 +6387,7 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
           <div style={{ fontSize:11, color:T.sub2, marginTop:2 }}>Un lien unique à partager sur WhatsApp, Instagram ou Facebook</div>
         </div>
 
-        {!plan.store && (
+        {!plan.store && !isAdmin && (
           <div style={{ background:`${T.gold}0e`, border:`1px solid ${T.gold}33`, borderRadius:12, padding:"12px 14px", marginBottom:16, fontSize:12, color:T.sub2, display:"flex", alignItems:"center", gap:10 }}>
             <span style={{ fontSize:20 }}>🔒</span>
             <div style={{ flex:1 }}>Publier votre boutique en ligne est réservé aux plans <strong style={{ color:T.gold }}>Pro</strong> et <strong style={{ color:T.gold }}>Business</strong>. Vous pouvez déjà préparer vos réglages.</div>
@@ -9181,7 +9181,7 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
 
       {/* ── UPGRADE WALL, affiché quand une limite Free précise est atteinte ── */}
       {showUpgradeWall&&(
-        <div onClick={()=>setShowUpgradeWall(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:980,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(18px)",padding:"16px"}}>
+        <div onClick={()=>setShowUpgradeWall(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.92)",zIndex:980,display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(18px)",padding:"16px",overflowY:"auto"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:`linear-gradient(160deg,${T.c1},${T.c2})`,border:`2px solid ${T.gr}55`,borderRadius:28,padding:"2rem 1.8rem",width:"100%",maxWidth:420,textAlign:"center",boxShadow:`0 40px 120px rgba(0,0,0,.95)`,animation:"pop .3s cubic-bezier(.34,1.56,.64,1)"}}>
             <div style={{fontSize:56,marginBottom:10}}>🚀</div>
             <div style={{fontWeight:900,fontSize:22,letterSpacing:"-.04em",marginBottom:6,color:T.gr}}>Tu maîtrises VierAfrik !</div>
