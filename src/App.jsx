@@ -711,6 +711,16 @@ const FL=({l,ch,err,hint})=>(
     {hint&&<div style={{fontSize:11,color:T.sub2,marginTop:2}}>ℹ {hint}</div>}
   </div>
 );
+// ── Vrai logo WhatsApp (SVG), remplace l'émoji téléphone 📱 qui prêtait à
+//  confusion ("les gens ne comprennent pas") sur toutes les actions WhatsApp
+//  de l'app. currentColor pour hériter la couleur du bouton parent. ──
+function WhatsAppIcon({size=18}){
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M12.001 2C6.478 2 2 6.477 2 12c0 1.79.469 3.53 1.36 5.062L2.02 22l5.062-1.328A9.958 9.958 0 0012 22c5.523 0 10-4.477 10-10S17.524 2 12.001 2zm5.507 14.144c-.229.646-1.34 1.234-1.848 1.31-.472.07-1.06.1-1.71-.108-.394-.126-.9-.294-1.55-.575-2.728-1.178-4.508-3.92-4.645-4.102-.137-.183-1.11-1.475-1.11-2.814 0-1.338.7-1.994.949-2.267.248-.274.542-.342.722-.342.18 0 .361.002.518.01.166.008.39-.063.61.465.229.548.777 1.892.845 2.03.069.137.114.297.023.48-.09.183-.137.297-.271.457-.137.16-.286.357-.408.48-.137.137-.28.286-.12.56.16.274.712 1.174 1.528 1.9 1.05.936 1.936 1.226 2.209 1.363.274.137.434.115.594-.069.16-.183.686-.8.869-1.075.183-.274.366-.229.617-.137.252.091 1.593.751 1.867.888.275.137.457.206.526.32.069.114.069.663-.16 1.309z"/>
+    </svg>
+  );
+}
 function Btn({ch,onClick,v="p",sm,full,dis,sx={}}){
   const V={
     p:{bg:T.gr,fg:T.ink},g:{bg:T.c2,fg:T.text,bd:`1px solid ${T.border}`},
@@ -2240,10 +2250,11 @@ function SmartQRPage({ user, isAdmin=false }) {
                   }.\n\n${qrValue}\n\nVierAfrik 🌍`;
                   window.open("https://wa.me/?text="+encodeURIComponent(txt), "_blank");
                 }}
-                  style={{ width:"100%", padding:"9px", borderRadius:11, border:"none",
+                  style={{ width:"100%", padding:"11px", borderRadius:11, border:"none",
                     background:"#25D366", color:"#fff", fontFamily:"inherit",
-                    fontWeight:700, fontSize:11, cursor:"pointer" }}>
-                  💬 Partager WhatsApp
+                    fontWeight:700, fontSize:12.5, cursor:"pointer",
+                    display:"flex", alignItems:"center", justifyContent:"center", gap:7 }}>
+                  <WhatsAppIcon size={16}/> Partager WhatsApp
                 </button>
               </div>
             )}
@@ -2586,7 +2597,7 @@ function PublicStorePage({ slug }) {
           {store.whatsapp_number && (
             <a href={`https://wa.me/${store.whatsapp_number.replace(/\D/g,"")}`} target="_blank" rel="noopener noreferrer"
               style={{display:"inline-flex",alignItems:"center",gap:7,marginTop:16,background:"#25D366",color:"#fff",fontWeight:800,fontSize:13,padding:"10px 18px",borderRadius:11,textDecoration:"none",boxShadow:"0 8px 24px rgba(0,0,0,.25)"}}>
-              💬 Contacter sur WhatsApp
+              <WhatsAppIcon size={17}/> Contacter sur WhatsApp
             </a>
           )}
         </div>
@@ -2617,8 +2628,8 @@ function PublicStorePage({ slug }) {
                     </div>
                     {link && !outOfStock && (
                       <a href={link} target="_blank" rel="noopener noreferrer"
-                        style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginTop:10,background:"#25D366",color:"#fff",fontWeight:800,fontSize:11.5,padding:"9px",borderRadius:9,textDecoration:"none"}}>
-                        💬 Commander
+                        style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginTop:10,background:"#25D366",color:"#fff",fontWeight:800,fontSize:12,padding:"11px",borderRadius:9,textDecoration:"none"}}>
+                        <WhatsAppIcon size={16}/> Commander
                       </a>
                     )}
                   </div>
@@ -4706,7 +4717,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
 
               <div style={{display:"flex",gap:3,flexWrap:"wrap",marginBottom:4}}>
                 <button onClick={()=>genPDF(inv)} style={{flex:1,background:"rgba(26,120,255,.1)",border:"none",color:T.blue,borderRadius:7,padding:"5px",cursor:"pointer",fontSize:10,fontWeight:700}}>📄 PDF</button>
-                <button onClick={()=>sendWA(inv)} style={{flex:1,background:"rgba(37,211,102,.13)",border:"1px solid rgba(37,211,102,.3)",color:"#25D366",borderRadius:7,padding:"6px 4px",cursor:"pointer",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:3}}>📲 WhatsApp</button>
+                <button onClick={()=>sendWA(inv)} style={{flex:1,background:"rgba(37,211,102,.13)",border:"1px solid rgba(37,211,102,.3)",color:"#25D366",borderRadius:9,padding:"10px 6px",cursor:"pointer",fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><WhatsAppIcon size={16}/> WhatsApp</button>
                 {inv.status!=="paid"&&<button onClick={()=>{setFm({_pay:true,inv});setMdl("pay");}} style={{flex:1,background:"rgba(240,176,32,.1)",border:"none",color:T.gold,borderRadius:7,padding:"5px",cursor:"pointer",fontSize:10,fontWeight:700}}>📱 MM</button>}
                 <button onClick={()=>{const lien=`${window.location.origin||"https://vierafrik.com"}/?pay=${inv.id}`;navigator.clipboard?.writeText(lien).then(()=>toast("🔗 Lien de paiement copié !")).catch(()=>toast("🔗 Lien : "+lien));}} style={{flex:1,background:"rgba(0,191,204,.1)",border:"1px solid rgba(0,191,204,.25)",color:T.teal,borderRadius:7,padding:"5px",cursor:"pointer",fontSize:10,fontWeight:700}}>🔗 Lien</button>
               </div>
@@ -4982,7 +4993,7 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
                   )}
 
                   <div style={{ display:"flex", gap:3, marginBottom:3 }}>
-                    <button onClick={()=>sendQuoteWA(q)} style={{ flex:1, background:"rgba(37,211,102,.13)", border:"1px solid rgba(37,211,102,.3)", color:"#25D366", borderRadius:7, padding:"6px 4px", cursor:"pointer", fontSize:10, fontWeight:700 }}>📲 WhatsApp</button>
+                    <button onClick={()=>sendQuoteWA(q)} style={{ flex:1, background:"rgba(37,211,102,.13)", border:"1px solid rgba(37,211,102,.3)", color:"#25D366", borderRadius:9, padding:"10px 6px", cursor:"pointer", fontSize:11.5, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}><WhatsAppIcon size={16}/> WhatsApp</button>
                     <button onClick={()=>genQuotePDF(q)} style={{ flex:1, background:"rgba(0,191,204,.1)", border:"1px solid rgba(0,191,204,.25)", color:T.teal, borderRadius:7, padding:"6px 4px", cursor:"pointer", fontSize:10, fontWeight:700 }}>📄 PDF</button>
                   </div>
                   <div style={{ display:"flex", gap:3 }}>
@@ -5233,7 +5244,7 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
                           {a.status!=="termine" && a.status!=="annule" && (
                             <button onClick={()=>setApptStatus(a,"termine")} style={{ flex:1, minWidth:70, background:T.c2, border:`1px solid ${T.border}`, color:T.sub2, borderRadius:7, padding:"6px 4px", cursor:"pointer", fontSize:9.5, fontWeight:700 }}>✔️ Terminé</button>
                           )}
-                          <button disabled={!a.phone} onClick={()=>sendApptWA(a)} style={{ flex:1, minWidth:70, background:"rgba(37,211,102,.13)", border:"1px solid rgba(37,211,102,.3)", color:"#25D366", borderRadius:7, padding:"6px 4px", cursor:a.phone?"pointer":"not-allowed", fontSize:9.5, fontWeight:700, opacity:a.phone?1:.4 }}>📲 Rappel</button>
+                          <button disabled={!a.phone} onClick={()=>sendApptWA(a)} style={{ flex:1, minWidth:70, background:"rgba(37,211,102,.13)", border:"1px solid rgba(37,211,102,.3)", color:"#25D366", borderRadius:9, padding:"9px 6px", cursor:a.phone?"pointer":"not-allowed", fontSize:11, fontWeight:700, opacity:a.phone?1:.4, display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><WhatsAppIcon size={15}/> Rappel</button>
                           <button onClick={()=>{ setFmA({...a,_edit:true}); setMdlA("edit"); }} style={{ background:"rgba(26,120,255,.07)", border:"none", color:T.blue, borderRadius:7, padding:"6px 9px", cursor:"pointer", fontSize:9.5, fontWeight:700 }}>✏️</button>
                           <button onClick={()=>deleteAppt(a)} style={{ background:"rgba(255,34,85,.08)", border:"none", color:T.red, borderRadius:7, padding:"6px 9px", cursor:"pointer", fontSize:9.5 }}>🗑</button>
                         </div>
@@ -5301,19 +5312,19 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
             </div>
             {cl.phone&&<div style={{fontSize:10,color:T.sub2,marginBottom:2}}>📞 {cl.phone}</div>}
             {cl.email&&<div style={{fontSize:10,color:T.sub2,marginBottom:8}}>✉️ {cl.email}</div>}
-            <div style={{display:"flex",gap:4,marginBottom:4}}>
-              <button title="Modifier" onClick={()=>{setFm({...cl,_edit:true});setMdl("cli");}} style={{flex:1,background:"rgba(26,120,255,.1)",border:"none",color:T.blue,borderRadius:7,padding:"5px",cursor:"pointer",fontSize:10,fontWeight:700}}>✏️</button>
-              <button title="WhatsApp" disabled={!cl.phone} onClick={()=>{const ph=cleanP(cl.phone);const m=encodeURIComponent("Bonjour "+cl.name.split(" ")[0]+"\n"+ses.business+" vous contacte.");window.open(`https://wa.me/${ph}?text=${m}`,"_blank");}} style={{flex:1,background:"rgba(37,211,102,.1)",border:"none",color:"#25D366",borderRadius:7,padding:"5px",cursor:cl.phone?"pointer":"not-allowed",fontSize:10,fontWeight:700,opacity:cl.phone?1:.4}}>📱</button>
-              <button title="Email" disabled={!cl.email} onClick={()=>{const subj=encodeURIComponent(`${ses.business||"VierAfrik"} — Contact`);const body=encodeURIComponent(`Bonjour ${cl.name.split(" ")[0]},\n\n`);window.open(`mailto:${cl.email}?subject=${subj}&body=${body}`,"_self");}} style={{flex:1,background:"rgba(240,176,32,.1)",border:"none",color:T.gold,borderRadius:7,padding:"5px",cursor:cl.email?"pointer":"not-allowed",fontSize:10,fontWeight:700,opacity:cl.email?1:.4}}>✉️</button>
-              <button title="Supprimer" onClick={()=>{setConfirm({title:"🗑 Supprimer le client",msg:`Supprimer ${cl.name} de votre liste clients ?`,confirmLabel:"Supprimer",danger:true,onConfirm:async()=>{setClis(prev=>prev.filter(x=>x.id!==cl.id));setConfirm(null);const ok=await supaDelete("clients",cl.id);if(!ok){setClis(prev=>[cl,...prev]);toast("❌ Suppression échouée, réessayez.","err");return;}toast("🗑 "+cl.name+" supprimé","warn");}});}} style={{background:"rgba(255,34,85,.1)",border:"none",color:T.red,borderRadius:7,padding:"5px 9px",cursor:"pointer",fontSize:10}}>🗑</button>
+            <div style={{display:"flex",gap:6,marginBottom:6}}>
+              <button title="Modifier" onClick={()=>{setFm({...cl,_edit:true});setMdl("cli");}} style={{flex:1,background:"rgba(26,120,255,.1)",border:"none",color:T.blue,borderRadius:9,padding:"10px",cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>✏️</button>
+              <button title="WhatsApp" disabled={!cl.phone} onClick={()=>{const ph=cleanP(cl.phone);const m=encodeURIComponent("Bonjour "+cl.name.split(" ")[0]+"\n"+ses.business+" vous contacte.");window.open(`https://wa.me/${ph}?text=${m}`,"_blank");}} style={{flex:1,background:"rgba(37,211,102,.1)",border:"none",color:"#25D366",borderRadius:9,padding:"10px",cursor:cl.phone?"pointer":"not-allowed",opacity:cl.phone?1:.4,display:"flex",alignItems:"center",justifyContent:"center"}}><WhatsAppIcon size={18}/></button>
+              <button title="Email" disabled={!cl.email} onClick={()=>{const subj=encodeURIComponent(`${ses.business||"VierAfrik"} — Contact`);const body=encodeURIComponent(`Bonjour ${cl.name.split(" ")[0]},\n\n`);window.open(`mailto:${cl.email}?subject=${subj}&body=${body}`,"_self");}} style={{flex:1,background:"rgba(240,176,32,.1)",border:"none",color:T.gold,borderRadius:9,padding:"10px",cursor:cl.email?"pointer":"not-allowed",fontSize:15,opacity:cl.email?1:.4,display:"flex",alignItems:"center",justifyContent:"center"}}>✉️</button>
+              <button title="Supprimer" onClick={()=>{setConfirm({title:"🗑 Supprimer le client",msg:`Supprimer ${cl.name} de votre liste clients ?`,confirmLabel:"Supprimer",danger:true,onConfirm:async()=>{setClis(prev=>prev.filter(x=>x.id!==cl.id));setConfirm(null);const ok=await supaDelete("clients",cl.id);if(!ok){setClis(prev=>[cl,...prev]);toast("❌ Suppression échouée, réessayez.","err");return;}toast("🗑 "+cl.name+" supprimé","warn");}});}} style={{background:"rgba(255,34,85,.1)",border:"none",color:T.red,borderRadius:9,padding:"10px 13px",cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>🗑</button>
             </div>
-            <div style={{display:"flex",gap:4}}>
+            <div style={{display:"flex",gap:6}}>
               <button title="Créer une facture pour ce client" onClick={()=>{setFm({clientName:cl.name,clientId:cl.id,phone:cl.phone||"",issued:today(),status:"pending",tax:0,currency:DEFAULT_CURRENCY,items:[{id:xid(),name:"",qty:1,price:0}]});setMdl("inv");}}
-                style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:5,background:`${accent}12`,border:`1px solid ${accent}33`,color:accent,borderRadius:7,padding:"6px",cursor:"pointer",fontSize:10,fontWeight:700}}>
+                style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:`${accent}12`,border:`1px solid ${accent}33`,color:accent,borderRadius:9,padding:"10px 6px",cursor:"pointer",fontSize:11.5,fontWeight:700}}>
                 🧾 Facture
               </button>
               <button title="Planifier un rendez-vous pour ce client" onClick={()=>{setFm({_prefillRdv:{clientName:cl.name,clientId:cl.id,phone:cl.phone||""}});setPage("rdv");}}
-                style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:5,background:`${T.purple}12`,border:`1px solid ${T.purple}33`,color:T.purple,borderRadius:7,padding:"6px",cursor:"pointer",fontSize:10,fontWeight:700}}>
+                style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:`${T.purple}12`,border:`1px solid ${T.purple}33`,color:T.purple,borderRadius:9,padding:"10px 6px",cursor:"pointer",fontSize:11.5,fontWeight:700}}>
                 📅 RDV
               </button>
             </div>
@@ -5946,7 +5957,7 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
                   </button>
                   <button onClick={handleWhatsApp}
                     style={{ padding:"12px 8px", background:"rgba(37,211,102,.12)", border:"1px solid rgba(37,211,102,.35)", borderRadius:11, color:"#25D366", cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
-                    💬 WhatsApp
+                    <WhatsAppIcon size={16}/> WhatsApp
                   </button>
                 </div>
                 <button onClick={()=>{setMdlEmp(null);setLastReceipt(null);}}
@@ -6460,9 +6471,9 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
             <div style={{ fontSize:10, fontWeight:800, textTransform:"uppercase", letterSpacing:".06em", color:accent, marginBottom:8 }}>🟢 Boutique en ligne</div>
             <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
               <div style={{ flex:1, minWidth:180, background:T.c2, border:`1px solid ${T.border}`, borderRadius:9, padding:"9px 12px", fontSize:12, color:T.sub2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{storeUrl}</div>
-              <Btn sm v="g" ch={copied?"✅ Copié":"📋 Copier"} onClick={copyLink}/>
+              <Btn v="g" ch={copied?"✅ Copié":"📋 Copier"} onClick={copyLink}/>
               <a href={`https://wa.me/?text=${encodeURIComponent("Découvrez ma boutique en ligne : "+storeUrl)}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration:"none" }}>
-                <Btn sm v="wa" ch="💬 Partager"/>
+                <Btn v="wa" ch={<><WhatsAppIcon size={16}/> Partager</>}/>
               </a>
             </div>
             <div style={{ fontSize:11, color:T.sub2, marginTop:8 }}>{prodCount} produit{prodCount!==1?"s":""} actif{prodCount!==1?"s":""} visible{prodCount!==1?"s":""} · <span onClick={()=>setPage("produits")} style={{ color:accent, cursor:"pointer", fontWeight:700 }}>Gérer mes produits →</span></div>
@@ -7238,7 +7249,7 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
           {/* Partage */}
           <div style={{background:T.c1,border:`1px solid ${T.border}`,borderRadius:16,padding:"1.2rem"}}>
             <div style={{fontWeight:800,fontSize:12,marginBottom:8}}>📱 Partagez VierAfrik</div>
-            <Btn full v="wa" ch="📱 Partager sur WhatsApp" onClick={()=>{
+            <Btn full v="wa" ch={<><WhatsAppIcon size={17}/> Partager sur WhatsApp</>} onClick={()=>{
               const m=encodeURIComponent("Bonjour,\n\nJ'utilise VierAfrik pour gagner de l'argent et développer mon business.\n\nAvec cette app tu peux :\n- Trouver des clients rapidement\n- Créer des factures pro\n- Encaisser par Mobile Money\n- Avoir un Coach IA\n\nInscris-toi gratuitement :\nhttps://vierafrik.com\n\nVierAfrik - Gagne de l'argent en Afrique 🌍");
               window.open("https://wa.me/?text="+m,"_blank");
             }}/>
@@ -7485,7 +7496,7 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
             </button>
           </div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            <Btn ch="📱 Partager sur WhatsApp" v="wa" onClick={shareWA} sx={{flex:1}}/>
+            <Btn ch={<><WhatsAppIcon size={17}/> Partager sur WhatsApp</>} v="wa" onClick={shareWA} sx={{flex:1}}/>
             <button onClick={copyLink} style={{flex:1,background:"rgba(26,120,255,.12)",border:"1px solid rgba(26,120,255,.3)",borderRadius:10,padding:"11px",color:T.blue,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:13}}>🔗 Copier le lien</button>
           </div>
         </div>
@@ -7850,7 +7861,8 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
           <button onClick={shareWA} style={{
             padding:"10px", borderRadius:10, border:"none",
             background:"#25D366", color:"#000", fontWeight:800, fontSize:12, cursor:"pointer", fontFamily:"inherit",
-          }}>💬 WhatsApp</button>
+            display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+          }}><WhatsAppIcon size={15}/> WhatsApp</button>
           <button onClick={()=>{ const lieu=[form.ville, form.pays && countryLabel(form.pays)].filter(Boolean).join(" · "); navigator.clipboard?.writeText([form.business,form.nom,form.phone,form.whatsapp&&form.whatsapp!==form.phone?"WhatsApp: "+form.whatsapp:"",lieu,"vierafrik.com"].filter(Boolean).join("\n")); toast("📋 Copié !"); }} style={{
             padding:"10px", borderRadius:10, border:`1px solid ${T.border}`,
             background:T.c2, color:T.text, fontWeight:700, fontSize:12, cursor:"pointer", fontFamily:"inherit",
