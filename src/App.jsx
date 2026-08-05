@@ -3565,6 +3565,24 @@ function Dashboard({ses,logout,updSes}){
     })();
   },[uid,loading,txs,invs]);
 
+  // ── Raccourcis d'écran d'accueil (manifest.json "shortcuts") : "+Vente"
+  //    et "+Facture" pointent vers /?action=vente|facture depuis l'icône
+  //    de l'appli installée. Sans ce handler ils ne faisaient rien. ──
+  useEffect(()=>{
+    if(!uid)return;
+    const action=new URLSearchParams(window.location.search).get("action");
+    if(action==="vente"){
+      setFm({type:"sale",cat:"Commerce",date:today()});setMdl("tx");
+    } else if(action==="facture"){
+      setFm({issued:today(),status:"pending",tax:0,currency:DEFAULT_CURRENCY,items:[{id:xid(),name:"",qty:1,price:0}]});setMdl("inv");
+    }
+    if(action){
+      const url=new URL(window.location.href);
+      url.searchParams.delete("action");
+      window.history.replaceState({},"",url);
+    }
+  },[uid]);
+
   // Handler retour paiement FedaPay, SEULEMENT après confirmation réelle
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
