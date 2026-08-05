@@ -5895,7 +5895,7 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
                   </div>
 
                   {/* Reçu du dernier paiement : visible directement sur la carte, pas caché dans un menu */}
-                  {lp && (
+                  {lp ? (
                     <div style={{ display:"flex", gap:5, marginTop:7 }}>
                       <button onClick={()=>genEmpPDF(emp.name, lp.amount, lp.currency, lp.date, (lp.id||"").toString().replace(/-/g,"").slice(0,8).toUpperCase())}
                         style={{ flex:1, background:`${T.blue}10`, border:"none", color:T.blue, borderRadius:8, padding:"7px", cursor:"pointer", fontSize:10, fontWeight:700 }}>📄 PDF reçu</button>
@@ -5903,6 +5903,12 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
                         style={{ flex:1, background:"rgba(37,211,102,.1)", border:"1px solid rgba(37,211,102,.25)", color:"#25D366", borderRadius:8, padding:"7px", cursor:"pointer", fontSize:10, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}><WhatsAppIcon size={12}/> WhatsApp</button>
                       <button onClick={()=>mailEmpReceipt(emp.name, lp.amount, lp.currency, lp.date, (lp.id||"").toString().replace(/-/g,"").slice(0,8).toUpperCase())}
                         style={{ flex:1, background:`${T.gold}10`, border:"none", color:T.gold, borderRadius:8, padding:"7px", cursor:"pointer", fontSize:10, fontWeight:700 }}>✉️ Mail</button>
+                    </div>
+                  ) : (
+                    // Rien à envoyer tant que personne n'a payé cet employé : on l'explique
+                    // au lieu de laisser un vide qui ressemble à un bug.
+                    <div style={{ marginTop:7, padding:"7px 10px", borderRadius:8, background:T.c3, border:`1px dashed ${T.border}`, fontSize:9.5, color:T.sub, textAlign:"center" }}>
+                      💡 Le reçu (PDF · WhatsApp · Mail) apparaîtra ici après le premier paiement
                     </div>
                   )}
                 </div>
