@@ -4153,6 +4153,17 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     window.open("https://wa.me/"+ph+"?text="+encodeURIComponent(msg),"_blank");
     toast("📱 WhatsApp ouvert, la facture est prête à envoyer !");
   };
+  // ── Relance WhatsApp d'une facture en retard : message dédié, plus direct
+  //    qu'un simple renvoi de facture, avec le nombre de jours de retard ──
+  const sendReminderWA=inv=>{
+    const ph=cleanP(inv.phone||clis.find(c=>c.id===inv.clientId)?.phone||"");
+    if(!ph){toast("⚠️ Numéro introuvable pour "+(inv.clientName||"ce client"),"warn");return;}
+    const days=inv.due?Math.max(0,Math.floor((Date.now()-new Date(inv.due).getTime())/864e5)):0;
+    const payLink=(window.location.origin||"https://vierafrik.com")+"/?pay="+inv.id;
+    const msg=`Bonjour ${(inv.clientName||"").split(" ")[0]||""},\n\nPetit rappel : la facture ${inv.num} de ${fmtPrice(inv.total-(inv.amtPaid||0), inv.currency||DEFAULT_CURRENCY)} est en retard de ${days} jour${days>1?"s":""}.\n\n💳 Payez en ligne en 1 clic :\n${payLink}\n\nMerci de régulariser dès que possible 🙏\n${ses.business||"VierAfrik"}`;
+    window.open("https://wa.me/"+ph+"?text="+encodeURIComponent(msg),"_blank");
+    toast("📱 Rappel WhatsApp prêt à envoyer !");
+  };
   // Mobile Money
   const doPay=async()=>{
     const{inv,prov,phone}=fm;
@@ -4368,6 +4379,78 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
     );
   };
 
+  // ── Briefing du jour : insights automatiques (ventes d'hier, client
+  //    inactif, stock bas, factures en retard), chacun avec une action
+  //    en 1 tap. Composant à part (pas dans PgDash) pour pouvoir utiliser
+  //    ses propres hooks — PgDash est une simple expression sans corps. ──
+  const DailyBriefing=()=>{
+    const [lowStock,setLowStock]=useState([]);
+    useEffect(()=>{
+      let cancelled=false;
+      (async()=>{
+        try{
+          const s=await getSupa();
+          const {data}=await s.from("products").select("id,name,stock_qty,low_stock_threshold")
+            .eq("user_id",uid).eq("active",true).not("stock_qty","is",null);
+          if(!cancelled&&data){
+            setLowStock(data.filter(p=>p.stock_qty<=(p.low_stock_threshold??3)));
+          }
+        }catch(e){ /* silencieux, le briefing reste utile sans le stock */ }
+      })();
+      return()=>{cancelled=true;};
+    },[uid]);
+
+    const yDate=new Date(Date.now()-864e5).toISOString().slice(0,10);
+    const yTx=txs.filter(t=>t.date===yDate&&t.type==="sale");
+    const ySalesTotal=yTx.reduce((s,t)=>s+t.amount,0);
+
+    // Client le plus rentable, et depuis quand il n'a pas acheté
+    const revByClient=txs.filter(t=>t.type==="sale"&&t.who).reduce((a,t)=>{a[t.who]=(a[t.who]||0)+t.amount;return a;},{});
+    const topClientName=Object.entries(revByClient).sort((a,b)=>b[1]-a[1])[0]?.[0];
+    let inactiveTop=null;
+    if(topClientName){
+      const lastDate=txs.filter(t=>t.who===topClientName&&t.type==="sale").sort((a,b)=>new Date(b.date)-new Date(a.date))[0]?.date;
+      if(lastDate){
+        const days=Math.floor((Date.now()-new Date(lastDate).getTime())/864e5);
+        if(days>=10)inactiveTop={name:topClientName,days,phone:clis.find(c=>c.name===topClientName)?.phone};
+      }
+    }
+
+    const overdueCount=invs.filter(i=>i.status==="overdue").length;
+
+    const items=[];
+    if(yTx.length>0)items.push({ic:"📊",txt:`Hier tu as fait ${yTx.length} vente${yTx.length>1?"s":""} pour ${fmtf(ySalesTotal)}.`});
+    if(inactiveTop)items.push({ic:"👤",txt:`${inactiveTop.name} n'a pas acheté depuis ${inactiveTop.days} jours. Une petite promo pourrait le faire revenir.`,
+      action:inactiveTop.phone?{label:"WhatsApp",fn:()=>{
+        const msg=encodeURIComponent(`Bonjour ${inactiveTop.name.split(" ")[0]}, ça fait un moment ! On a pensé à vous chez ${ses.business||"nous"}, passez nous voir 😊`);
+        window.open(`https://wa.me/${cleanP(inactiveTop.phone)}?text=${msg}`,"_blank");
+      }}:null});
+    if(lowStock.length>0)items.push({ic:"📦",txt:`${lowStock.length} produit${lowStock.length>1?"s":""} en stock bas : ${lowStock.slice(0,2).map(p=>p.name).join(", ")}${lowStock.length>2?"…":""}.`,
+      action:{label:"Voir le stock",fn:()=>setPage("produits")}});
+    if(overdueCount>0)items.push({ic:"🔴",txt:`${overdueCount} facture${overdueCount>1?"s":""} en retard de paiement.`,
+      action:{label:"Relancer",fn:()=>setMdl("reminders")}});
+
+    if(items.length===0)return null;
+
+    return(
+      <div style={{background:`linear-gradient(135deg,${T.c1},${T.c2})`,border:`1px solid ${accent}30`,borderRadius:18,padding:"1.2rem 1.3rem",marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+          <div style={{width:34,height:34,borderRadius:10,background:`${accent}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>🌅</div>
+          <div style={{fontWeight:800,fontSize:14}}>Ton briefing du jour</div>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {items.map((it,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:T.c2,border:`1px solid ${T.border}`,borderRadius:12,padding:"10px 12px",flexWrap:"wrap"}}>
+              <span style={{fontSize:16,flexShrink:0}}>{it.ic}</span>
+              <span style={{flex:1,fontSize:12,color:T.text,lineHeight:1.4,minWidth:160}}>{it.txt}</span>
+              {it.action&&<button onClick={it.action.fn} style={{flexShrink:0,background:`${accent}18`,border:`1px solid ${accent}44`,color:accent,borderRadius:8,padding:"6px 11px",fontSize:10.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{it.action.label}</button>}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   // ════════════════ PAGES ════════════════
 
   const PgDash=()=>(
@@ -4426,6 +4509,7 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
           <span>{new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}</span>
         </div>
       </div>
+      <DailyBriefing/>
       {/* Objectif */}
       <div style={{background:`linear-gradient(135deg,${accent}14,${T.teal}08,${T.c2})`,border:`1px solid ${accent}30`,borderRadius:18,padding:"1.3rem 1.5rem",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,position:"relative",overflow:"hidden",boxShadow:`0 8px 32px ${accent}12`}}>
         <div style={{position:"absolute",right:-60,top:-60,width:200,height:200,borderRadius:"50%",background:`${accent}06`}}/>
@@ -4526,7 +4610,10 @@ ${inv.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-
             <div style={{fontWeight:700,color:T.red,fontSize:13}}>{invs.filter(i=>i.status==="overdue").length} facture(s) en retard de paiement</div>
             <div style={{fontSize:11,color:T.sub2,marginTop:1}}>Relancez vos clients via WhatsApp pour accélérer le paiement</div>
           </div>
-          <Btn sm v="d" ch="Voir les factures →" onClick={()=>setPage("inv")}/>
+          <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+            <Btn sm v="d" ch="📱 Relancer" onClick={()=>setMdl("reminders")}/>
+            <Btn sm v="g" ch="Voir les factures →" onClick={()=>setPage("inv")}/>
+          </div>
         </div>
       )}
       {/* Charts */}
@@ -9538,6 +9625,36 @@ function LogoGenerator({ user, accent = "#00d478", toast }) {
             }
           }}/>
         </div>
+      </Modal>
+
+      {/* Centre de rappels, factures en retard → 1 tap = message WhatsApp prêt */}
+      <Modal open={mdl==="reminders"} onClose={()=>setMdl(null)} title="📱 Centre de rappels">
+        {(() => {
+          const overdue=[...invs].filter(i=>i.status==="overdue").sort((a,b)=>new Date(a.due||0)-new Date(b.due||0));
+          if(overdue.length===0) return (
+            <div style={{textAlign:"center",padding:"2rem",color:T.sub}}>
+              <div style={{fontSize:32,marginBottom:8}}>✅</div>
+              Aucune facture en retard, bravo !
+            </div>
+          );
+          return (
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{fontSize:11.5,color:T.sub2,marginBottom:2}}>{overdue.length} facture{overdue.length>1?"s":""} en retard. Un tap = message WhatsApp prêt à envoyer.</div>
+              {overdue.map(inv=>{
+                const days=inv.due?Math.max(0,Math.floor((Date.now()-new Date(inv.due).getTime())/864e5)):0;
+                return (
+                  <div key={inv.id} style={{display:"flex",alignItems:"center",gap:10,background:T.c2,border:`1px solid ${T.border}`,borderRadius:12,padding:"11px 13px"}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:800,fontSize:12.5,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{inv.clientName}</div>
+                      <div style={{fontSize:10.5,color:T.red,marginTop:2}}>{fmtPrice(inv.total-(inv.amtPaid||0), inv.currency||DEFAULT_CURRENCY)} · {days} jour{days>1?"s":""} de retard</div>
+                    </div>
+                    <button onClick={()=>sendReminderWA(inv)} style={{flexShrink:0,background:"rgba(37,211,102,.13)",border:"1px solid rgba(37,211,102,.3)",color:"#25D366",borderRadius:9,padding:"9px 12px",cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:11,display:"flex",alignItems:"center",gap:6}}><WhatsAppIcon size={15}/> Relancer</button>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </Modal>
     </div>
   );
