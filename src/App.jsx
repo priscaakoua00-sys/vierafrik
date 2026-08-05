@@ -3529,6 +3529,42 @@ function Dashboard({ses,logout,updSes}){
     loadAll();
   },[uid]);
 
+  // ── Score de fiabilité : calculé localement à partir des vraies données
+  //    (ponctualité des factures, activité récente, volume de ventes),
+  //    publié sur le profil Réseau public si le commerçant en a un.
+  //    Aucun appel externe, aucun coût — recalculé à chaque changement. ──
+  const lastReliabilitySent=useRef(null);
+  useEffect(()=>{
+    if(!uid||loading)return;
+    const paidCount=invs.filter(i=>i.status==="paid").length;
+    const overdueCount=invs.filter(i=>i.status==="overdue").length;
+    const decided=paidCount+overdueCount;
+    const onTimePct=decided>0?paidCount/decided:null;
+
+    const now=Date.now();
+    const recentTx=txs.filter(t=>now-new Date(t.date).getTime()<7*864e5).length;
+    const monthTx=txs.filter(t=>now-new Date(t.date).getTime()<30*864e5).length;
+    const saleCount=txs.filter(t=>t.type==="sale").length;
+
+    let score=40;
+    score+=onTimePct!==null?Math.round(onTimePct*30):15;
+    score+=recentTx>0?20:monthTx>0?10:0;
+    score+=saleCount>=20?10:saleCount>=5?5:0;
+    score=Math.max(0,Math.min(100,score));
+
+    const tier=score>=85?"🌟 Excellent":score>=65?"✅ Fiable":score>=40?"🆕 Nouveau":"⏳ En construction";
+
+    if(lastReliabilitySent.current===score)return;
+    lastReliabilitySent.current=score;
+    (async()=>{
+      try{
+        const s=await getSupa();
+        // Ne touche que le profil s'il existe déjà (commerçant déjà inscrit au Réseau)
+        await s.from("commercants_profils").update({reliability_score:score,reliability_tier:tier}).eq("id",uid);
+      }catch(e){ /* silencieux, non bloquant */ }
+    })();
+  },[uid,loading,txs,invs]);
+
   // Handler retour paiement FedaPay, SEULEMENT après confirmation réelle
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);

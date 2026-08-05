@@ -64,6 +64,12 @@ export default function FeedCard({
               ✨ Exemple
             </span>
           )}
+          {!isDemo && (c.reliability_tier === "🌟 Excellent" || c.reliability_tier === "✅ Fiable") && (
+            <span title="Calculé à partir de la ponctualité des paiements et de l'activité réelle sur VierAfrik"
+              style={{ background:"rgba(0,212,120,.85)", backdropFilter:"blur(6px)", borderRadius:20, padding:"4px 10px", fontSize:10.5, fontWeight:800, color:"#000" }}>
+              {c.reliability_tier}
+            </span>
+          )}
         </div>
         <div style={{ position:"absolute", bottom:0, left:0, right:0, height:82, background:"linear-gradient(to top,rgba(5,9,15,.96),transparent)" }}/>
         <div style={{ position:"absolute", bottom:11, left:14, right:14 }}>
