@@ -36,6 +36,13 @@ const ProfileCard = ({ accent, Tc, myProfile, userName, onEdit }) => (
         )}
       </div>
     </div>
+    {myProfile && myProfile.reliability_tier && (
+      <div title="Calculé automatiquement à partir de la ponctualité de tes factures et de ton activité"
+        style={{ marginTop:11, display:"flex", alignItems:"center", justifyContent:"space-between", background:Tc.c2, border:`1px solid ${Tc.border}`, borderRadius:10, padding:"8px 11px" }}>
+        <span style={{ fontSize:10.5, color:Tc.sub2, fontWeight:600 }}>Score de fiabilité</span>
+        <span style={{ fontSize:11.5, fontWeight:800 }}>{myProfile.reliability_tier} {myProfile.reliability_score!=null?`· ${myProfile.reliability_score}/100`:""}</span>
+      </div>
+    )}
     <button onClick={onEdit} style={{ marginTop:12, width:"100%", padding:"9px", borderRadius:10, border:"none", background:`linear-gradient(135deg,${accent},${Tc.teal})`, color:Tc.ink, cursor:"pointer", fontFamily:"inherit", fontWeight:800, fontSize:12 }}>
       {myProfile ? "✏️ Modifier mon profil" : "➕ Rejoindre le réseau"}
     </button>
