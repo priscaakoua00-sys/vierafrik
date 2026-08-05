@@ -120,6 +120,12 @@ export default function FeedCard({
           </button>
         ) : (
           <>
+            {c.store_slug && (
+              <a href={`/?boutique=${c.store_slug}`} target="_blank" rel="noopener noreferrer"
+                style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:7, width:"100%", padding:"11px", marginBottom:9, borderRadius:11, border:"none", background:`linear-gradient(135deg,${accent},${Tc.teal})`, color:Tc.ink, textDecoration:"none", fontFamily:"inherit", fontWeight:800, fontSize:12.5 }}>
+                🛍️ Voir la boutique & commander
+              </a>
+            )}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:6, marginBottom:11 }}>
               {[
                 { ic:"📞", label:"Appeler",  col:Tc.gr,    fn:()=>doCall(c.phone) },
