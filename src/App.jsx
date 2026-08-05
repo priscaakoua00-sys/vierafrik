@@ -6694,6 +6694,14 @@ ${q.notes?`<div style="background:#f9f9f9;border-radius:8px;padding:10px;font-si
           setStoreS(data); setFmSt(data);
           markUserActive(uid);
           toast(payload.published ? "🛍️ Boutique publiée !" : "✅ Boutique enregistrée");
+          // ── Marketplace B2B : publie le lien boutique sur le profil Réseau public
+          //    (s'il en a un), pour que les autres commerçants puissent acheter
+          //    directement depuis sa carte, sans nouvelle infra de panier/checkout ──
+          try {
+            await s.from("commercants_profils")
+              .update({ store_slug: payload.published ? cleanSlug : null })
+              .eq("id", uid);
+          } catch(_e) { /* silencieux, non bloquant */ }
         }
       } catch(e) { toast("❌ Erreur réseau", "err"); }
       setSavingSt(false);
